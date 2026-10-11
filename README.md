@@ -684,7 +684,7 @@ List of runs with label, date, models, tasks, status, and headline results. Open
 
 | Format | Contents |
 |--------|----------|
-| **CSV** | Item-level file: one row per (run, model, task, item, repetition) with inputs, gold, raw output, parsed output, comparison fields, tokens in and out, cost and cost source, latency, attempts, status, error. A second aggregate file has one row per (model, task). |
+| **CSV** | A ZIP package containing an item-level CSV (one row per run, model, task, item, repetition) with inputs, gold, raw output, parsed output, comparison fields, tokens in and out, cost and cost source, latency, attempts, status, and error, plus an aggregate CSV with one row per model and task. |
 | **JSON** | Full run record: settings, versions and hashes, aggregates, item-level results. |
 | **XLSX** | Sheets: Summary, Efficiency, Items, Run Info. |
 | **PDF** | Run info, overview matrix, efficiency table, charts, per-task comparison summaries, a short methods and limitations note, the not-a-clinical-tool disclaimer, and the estimated-cost caveat. |

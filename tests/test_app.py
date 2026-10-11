@@ -58,6 +58,8 @@ def test_frontend_pages_render_without_inline_scripts(client):
     assert b'id="task-detail-tab"' in run_page.data
     assert b'id="items-tab"' in run_page.data
     assert b'id="run-info-tab"' in run_page.data
+    assert b"CSV package" in run_page.data
+    assert b"Excel workbook" in run_page.data
 
     history = client.get("/history", headers={"Host": "localhost:5000"})
     assert history.status_code == 200

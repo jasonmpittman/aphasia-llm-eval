@@ -786,6 +786,12 @@ a:focus-visible {
   font-size: 0.78rem;
 }
 
+.history-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
 .tag-list {
   display: flex;
   flex-wrap: wrap;

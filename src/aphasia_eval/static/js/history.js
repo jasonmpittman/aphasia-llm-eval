@@ -56,11 +56,20 @@
   }
 
   function actions(run) {
-    const group = element("div", {className: "btn-group btn-group-sm", role: "group", "aria-label": `Actions for ${runLabel(run)}`});
+    const group = element("div", {className: "history-actions", role: "group", "aria-label": `Actions for ${runLabel(run)}`});
+    const exportMenu = element("ul", {className: "dropdown-menu dropdown-menu-end"});
+    [["CSV package", "csv"], ["JSON", "json"], ["Excel workbook", "xlsx"], ["PDF report", "pdf"]].forEach(([label, format]) => {
+      exportMenu.append(element("li", {}, element("a", {className: "dropdown-item", href: `/api/runs/${encodeURIComponent(run.id)}/export?format=${format}`, text: label})));
+    });
+    const exportDropdown = element("div", {className: "dropdown"}, [
+      element("button", {className: "btn btn-sm btn-outline-secondary dropdown-toggle", type: "button", "data-bs-toggle": "dropdown", "aria-expanded": "false", text: "Export"}),
+      exportMenu,
+    ]);
     group.append(
-      element("a", {className: "btn btn-outline-primary", href: `/runs/${encodeURIComponent(run.id)}`, text: "Open"}),
-      element("button", {className: "btn btn-outline-secondary", type: "button", text: "Rename", onclick: () => openRename(run)}),
-      element("button", {className: "btn btn-outline-danger", type: "button", text: "Delete", onclick: () => removeRun(run)}),
+      element("a", {className: "btn btn-sm btn-outline-primary", href: `/runs/${encodeURIComponent(run.id)}`, text: "Open"}),
+      element("button", {className: "btn btn-sm btn-outline-secondary", type: "button", text: "Rename", onclick: () => openRename(run)}),
+      exportDropdown,
+      element("button", {className: "btn btn-sm btn-outline-danger", type: "button", text: "Delete", onclick: () => removeRun(run)}),
     );
     return group;
   }

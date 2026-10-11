@@ -123,6 +123,27 @@ def get_run(run_id: str):
     return jsonify(payload)
 
 
+@blueprint.patch("/api/runs/<run_id>")
+def update_run(run_id: str):
+    """Update the user-editable label on a run."""
+
+    body = request.get_json(silent=True)
+    if not isinstance(body, Mapping) or set(body) != {"label"}:
+        return json_error("invalid_request", "Body must contain only label.", 400)
+    label = body["label"]
+    if label is not None and (not isinstance(label, str) or len(label.strip()) > 200):
+        return json_error(
+            "invalid_request", "label must be null or a string of at most 200 characters.", 400
+        )
+    normalized = label.strip() or None if isinstance(label, str) else None
+    with get_database().session() as session:
+        run = session.get(Run, run_id)
+        if run is None:
+            return json_error("not_found", "Run not found.", 404)
+        run.label = normalized
+    return jsonify({"run_id": run_id, "label": normalized})
+
+
 @blueprint.get("/api/runs/<run_id>/items")
 def list_run_items(run_id: str):
     """Return paginated item results with optional failure filters."""

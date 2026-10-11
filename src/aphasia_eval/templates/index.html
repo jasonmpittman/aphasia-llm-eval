@@ -1,19 +1,42 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>aphasia-llm-eval</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
-  </head>
-  <body>
-    <main class="container py-5">
-      <h1>aphasia-llm-eval</h1>
-      <p class="lead">Application scaffold ready. Model and task selection arrives in Milestone 4.</p>
-      <div class="alert alert-warning" role="alert">
-        Research evaluation only. Not a clinical tool. Do not submit PHI or identifiable data.
+{% extends "base.html" %}
+{% block title %}New run · aphasia-llm-eval{% endblock %}
+{% block content %}
+<main id="main-content" class="container-xl page-shell" data-confirmation-threshold="{{ confirmation_threshold }}">
+  <section class="page-intro row align-items-end g-4">
+    <div class="col-lg-8"><p class="eyebrow">Evaluation workspace</p><h1>Compare models against verified language-analysis gold.</h1><p class="lead mb-0">Choose models and tasks, set the run controls, then inspect agreement and efficiency without collapsing unlike tasks into one score.</p></div>
+    <div class="col-lg-4"><div class="principle-card"><span class="principle-number">01</span><div><strong>Traceable by design</strong><span>Prompts, task files, and gold data are hashed with every run.</span></div></div></div>
+  </section>
+  <div id="selection-alert" class="alert alert-danger d-none" role="alert" aria-live="assertive"></div>
+  <form id="run-form" novalidate>
+    <section class="workspace-section" aria-labelledby="models-title">
+      <div class="section-heading"><div><p class="section-kicker">Step 1</p><h2 id="models-title">Models</h2></div><div class="selection-count" id="model-count" aria-live="polite">Loading models…</div></div>
+      <div class="control-surface">
+        <div class="row g-3 align-items-end">
+          <div class="col-lg-5"><label for="model-search" class="form-label">Search models</label><input id="model-search" class="form-control" type="search" placeholder="Filter by model ID" autocomplete="off"></div>
+          <div class="col-auto d-flex gap-2"><button id="select-all-models" class="btn btn-outline-primary" type="button">Select visible</button><button id="clear-models" class="btn btn-outline-secondary" type="button">Clear</button></div>
+          <div class="col-lg ms-lg-auto"><label for="preset-select" class="form-label">Saved model preset</label><div class="input-group"><select id="preset-select" class="form-select" aria-label="Saved model presets"><option value="">Choose preset…</option></select><button id="load-preset" class="btn btn-outline-secondary" type="button">Load</button><button id="delete-preset" class="btn btn-outline-secondary" type="button" aria-label="Delete selected preset">Delete</button></div></div>
+        </div>
+        <div id="model-loading" class="loading-state" role="status"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Contacting the configured gateway…</div>
+        <div id="model-list" class="model-grid" aria-live="polite"></div>
+        <div class="preset-save row g-2 align-items-end"><div class="col-sm-6 col-lg-4"><label for="preset-name" class="form-label">Preset name</label><input id="preset-name" class="form-control" maxlength="60" placeholder="e.g. Baseline models"></div><div class="col-auto"><button id="save-preset" class="btn btn-secondary" type="button">Save selected models</button></div><div id="preset-message" class="col-12 form-text" aria-live="polite"></div></div>
       </div>
-    </main>
-  </body>
-</html>
+    </section>
+    <section class="workspace-section" aria-labelledby="tasks-title">
+      <div class="section-heading"><div><p class="section-kicker">Step 2</p><h2 id="tasks-title">Tasks</h2></div><div class="selection-count" id="task-count" aria-live="polite">Loading tasks…</div></div>
+      <div id="task-loading" class="loading-state" role="status"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Validating task and gold files…</div>
+      <div id="task-list" class="row g-3" aria-live="polite"></div>
+    </section>
+    <section class="workspace-section" aria-labelledby="run-label-title">
+      <div class="section-heading compact-heading"><div><p class="section-kicker">Step 3</p><h2 id="run-label-title">Name and settings</h2></div><button class="btn btn-outline-primary" type="button" data-bs-toggle="offcanvas" data-bs-target="#settings-panel" aria-controls="settings-panel">Adjust run settings</button></div>
+      <div class="control-surface"><label for="run-label" class="form-label">Run label <span class="text-secondary">(optional)</span></label><input id="run-label" class="form-control form-control-lg" maxlength="200" placeholder="e.g. October baseline — zero temperature"></div>
+    </section>
+    <div class="offcanvas offcanvas-end" tabindex="-1" id="settings-panel" aria-labelledby="settings-title">
+      <div class="offcanvas-header"><div><p class="section-kicker mb-1">Run controls</p><h2 class="offcanvas-title h4" id="settings-title">Settings</h2></div><button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close settings"></button></div>
+      <div class="offcanvas-body"><div class="mb-4"><label for="temperature" class="form-label">Temperature</label><input id="temperature" class="form-control" type="number" min="0" step="0.1" value="0"><div class="form-text">Zero is recommended for repeatable evaluation.</div></div><div class="mb-4"><label for="max-tokens" class="form-label">Maximum output tokens</label><input id="max-tokens" class="form-control" type="number" min="1" step="1" value="2048"></div><div class="mb-4"><label for="repetitions" class="form-label">Repetitions</label><input id="repetitions" class="form-control" type="number" min="1" step="1" value="1"><div class="form-text">Headline variability is shown when repetitions exceed one.</div></div><div class="mb-4"><label for="item-limit" class="form-label">Item limit per task</label><input id="item-limit" class="form-control" type="number" min="1" step="1" placeholder="All items"><div class="form-text">Leave blank to run every gold item.</div></div></div>
+    </div>
+    <div class="run-dock" role="region" aria-label="Run summary"><div><p class="run-equation" id="run-equation">Select at least one model and task.</p><p class="run-cost" id="run-cost">Estimated cost: n/a until priced models are selected.</p></div><button id="start-run" class="btn btn-primary btn-lg" type="submit" disabled>Start evaluation</button></div>
+  </form>
+</main>
+<div class="modal fade" id="confirmation-modal" tabindex="-1" aria-labelledby="confirmation-title" aria-describedby="confirmation-description"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title h5" id="confirmation-title">Confirm larger run</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body"><p id="confirmation-description"></p><p class="small text-secondary mb-0">Requests may incur provider charges. All displayed costs are estimates.</p></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Review selection</button><button id="confirm-run" type="button" class="btn btn-primary">Start this run</button></div></div></div></div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/select.js') }}" defer></script>{% endblock %}

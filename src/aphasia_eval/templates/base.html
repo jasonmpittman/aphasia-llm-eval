@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>{% block title %}aphasia-llm-eval{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  </head>
+  <body data-page="{{ page_name }}">
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <nav class="navbar navbar-expand-md app-navbar" aria-label="Primary navigation">
+      <div class="container-xl">
+        <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('web.index') }}">
+          <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span>aphasia-llm-eval</span>
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#main-nav" aria-controls="main-nav" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="main-nav">
+          <ul class="navbar-nav ms-auto">
+            <li class="nav-item"><a class="nav-link{% if page_name == 'select' %} active{% endif %}"{% if page_name == 'select' %} aria-current="page"{% endif %} href="{{ url_for('web.index') }}">New run</a></li>
+            <li class="nav-item"><a class="nav-link{% if page_name == 'history' %} active{% endif %}"{% if page_name == 'history' %} aria-current="page"{% endif %} href="{{ url_for('web.history') }}">History</a></li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+    <div class="safety-strip" role="note">
+      <div class="container-xl d-flex gap-2 align-items-center">
+        <span class="safety-icon" aria-hidden="true">!</span>
+        <span><strong>Research evaluation only.</strong> Not a clinical tool. Do not submit PHI or identifiable data.</span>
+      </div>
+    </div>
+    {% block content %}{% endblock %}
+    <footer class="app-footer">
+      <div class="container-xl d-flex flex-column flex-md-row justify-content-between gap-2">
+        <span>Local-first model comparison for aphasia research workflows.</span>
+        <span>Costs are estimates · Results require expert interpretation</span>
+      </div>
+    </footer>
+    <script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/common.js') }}" defer></script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

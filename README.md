@@ -243,6 +243,7 @@ GOLD_TASKS_DIR=gold_tasks               # set to gold_tasks/examples for demo mo
 MAX_CONCURRENCY_PER_MODEL=4
 MAX_CONCURRENCY_TOTAL=8
 MAX_REQUESTS_PER_RUN=5000               # spend guard
+RUN_CONFIRMATION_THRESHOLD=250          # browser confirmation before larger runs
 REQUEST_TIMEOUT_SECONDS=120
 MAX_RETRIES=3
 DEFAULT_TEMPERATURE=0
@@ -619,6 +620,7 @@ JSON unless noted. Errors use `{"error": {"code": "...", "message": "..."}}`. St
 | POST | `/api/runs` | Create and start a run |
 | GET | `/api/runs` | List runs |
 | GET | `/api/runs/<id>` | Run metadata, status, aggregates |
+| PATCH | `/api/runs/<id>` | Rename a run (`{"label": "..."}`) |
 | GET | `/api/runs/<id>/items` | Item-level results, paginated and filterable |
 | GET | `/api/runs/<id>/events` | SSE progress stream |
 | POST | `/api/runs/<id>/cancel` | Cooperative cancel |

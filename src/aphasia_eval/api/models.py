@@ -21,11 +21,25 @@ def list_models():
     for model_id in discovery.models:
         if model_id in pricing.overrides:
             price_source = "override"
+            token_pricing = pricing.overrides[model_id]
         elif model_id in pricing.proxy_pricing:
             price_source = "proxy_pricing"
+            token_pricing = pricing.proxy_pricing[model_id]
         else:
             price_source = "unknown"
-        models.append({"id": model_id, "pricing_source": price_source})
+            token_pricing = None
+        models.append(
+            {
+                "id": model_id,
+                "pricing_source": price_source,
+                "input_usd_per_1m_tokens": (
+                    token_pricing.input_cost_per_token * 1_000_000 if token_pricing else None
+                ),
+                "output_usd_per_1m_tokens": (
+                    token_pricing.output_cost_per_token * 1_000_000 if token_pricing else None
+                ),
+            }
+        )
     return jsonify(
         {
             "models": models,

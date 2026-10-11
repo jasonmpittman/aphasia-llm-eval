@@ -32,10 +32,30 @@ def test_model_and_task_discovery(app, client):
     assert models.status_code == 200
     assert models.get_json() == {
         "models": [
-            {"id": "good-model", "pricing_source": "override"},
-            {"id": "error-model", "pricing_source": "proxy_pricing"},
-            {"id": "bad-json", "pricing_source": "unknown"},
-            {"id": "alignment-model", "pricing_source": "unknown"},
+            {
+                "id": "good-model",
+                "pricing_source": "override",
+                "input_usd_per_1m_tokens": 100000.0,
+                "output_usd_per_1m_tokens": 200000.0,
+            },
+            {
+                "id": "error-model",
+                "pricing_source": "proxy_pricing",
+                "input_usd_per_1m_tokens": 1.0,
+                "output_usd_per_1m_tokens": 2.0,
+            },
+            {
+                "id": "bad-json",
+                "pricing_source": "unknown",
+                "input_usd_per_1m_tokens": None,
+                "output_usd_per_1m_tokens": None,
+            },
+            {
+                "id": "alignment-model",
+                "pricing_source": "unknown",
+                "input_usd_per_1m_tokens": None,
+                "output_usd_per_1m_tokens": None,
+            },
         ],
         "source": "gateway",
         "error": None,
@@ -157,6 +177,18 @@ def test_full_run_with_success_error_and_parse_failure(client, fake_litellm):
     assert listed[0]["models"] == ["bad-json", "error-model", "good-model"]
     assert listed[0]["tasks"] == ["ciu_scoring"]
 
+    renamed = client.patch(
+        f"/api/runs/{run_id}", json={"label": "Renamed evaluation"}, headers=HEADERS
+    )
+    assert renamed.status_code == 200
+    assert renamed.get_json() == {"run_id": run_id, "label": "Renamed evaluation"}
+    assert client.get(f"/api/runs/{run_id}", headers=HEADERS).get_json()["run"]["label"] == (
+        "Renamed evaluation"
+    )
+
+    cleared = client.patch(f"/api/runs/{run_id}", json={"label": "  "}, headers=HEADERS)
+    assert cleared.get_json() == {"run_id": run_id, "label": None}
+
     cancel = client.post(f"/api/runs/{run_id}/cancel", json={}, headers=HEADERS)
     assert cancel.status_code == 409
     deleted = client.delete(f"/api/runs/{run_id}", json={}, headers=HEADERS)
@@ -245,7 +277,25 @@ def test_request_cap_and_query_validation(app, client):
     assert response.status_code == 400
     assert client.get("/api/runs/missing/events", headers=HEADERS).status_code == 404
     assert client.post("/api/runs/missing/cancel", json={}, headers=HEADERS).status_code == 404
+    rename_missing = client.patch("/api/runs/missing", json={"label": None}, headers=HEADERS)
+    assert rename_missing.status_code == 404
     assert client.delete("/api/runs/missing", json={}, headers=HEADERS).status_code == 404
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"label": "valid", "extra": True},
+        {"label": 42},
+        {"label": "x" * 201},
+    ],
+)
+def test_run_label_validation(client, body):
+    response = client.patch("/api/runs/missing", json=body, headers=HEADERS)
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "invalid_request"
 
 
 def test_pos_aggregation_and_alignment_filter(client):

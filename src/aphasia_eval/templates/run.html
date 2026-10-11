@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Run · aphasia-llm-eval{% endblock %}
+{% block content %}
+<main id="main-content" class="container-xl page-shell" data-run-id="{{ run_id }}">
+  <section class="run-header">
+    <div><p class="eyebrow">Evaluation run</p><h1 id="run-title">Loading run…</h1><p class="run-id"><span class="visually-hidden">Run identifier:</span>{{ run_id }}</p></div>
+    <div class="d-flex align-items-center gap-2"><span id="run-status" class="status-pill status-pending" aria-live="polite">Loading</span><button id="cancel-run" class="btn btn-outline-danger" type="button" disabled>Cancel run</button></div>
+  </section>
+  <div id="run-alert" class="alert alert-danger d-none" role="alert" aria-live="assertive"></div>
+  <section class="progress-panel" aria-labelledby="progress-title">
+    <div class="d-flex justify-content-between align-items-end gap-3"><div><p class="section-kicker">Live execution</p><h2 id="progress-title" class="h4">Progress</h2></div><strong id="progress-label">0 of 0 jobs</strong></div>
+    <progress id="overall-progress" class="run-progress" aria-label="Overall run progress" max="100" value="0">0%</progress>
+    <div id="model-progress" class="model-progress-list" aria-live="polite"></div>
+  </section>
+  <section class="results-shell" aria-labelledby="results-title">
+    <div class="section-heading"><div><p class="section-kicker">Analysis</p><h2 id="results-title">Run results</h2></div><span id="result-refresh" class="text-secondary small" aria-live="polite">Waiting for results…</span></div>
+    <ul class="nav nav-tabs result-tabs" id="result-tabs" role="tablist">
+      <li class="nav-item" role="presentation"><button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview-pane" type="button" role="tab" aria-controls="overview-pane" aria-selected="true">Overview</button></li>
+      <li class="nav-item" role="presentation"><button class="nav-link" id="efficiency-tab" data-bs-toggle="tab" data-bs-target="#efficiency-pane" type="button" role="tab" aria-controls="efficiency-pane" aria-selected="false">Efficiency</button></li>
+      <li class="nav-item" role="presentation"><button class="nav-link" id="task-detail-tab" data-bs-toggle="tab" data-bs-target="#task-detail-pane" type="button" role="tab" aria-controls="task-detail-pane" aria-selected="false">Task detail</button></li>
+      <li class="nav-item" role="presentation"><button class="nav-link" id="items-tab" data-bs-toggle="tab" data-bs-target="#items-pane" type="button" role="tab" aria-controls="items-pane" aria-selected="false">Items</button></li>
+      <li class="nav-item" role="presentation"><button class="nav-link" id="run-info-tab" data-bs-toggle="tab" data-bs-target="#run-info-pane" type="button" role="tab" aria-controls="run-info-pane" aria-selected="false">Run info</button></li>
+    </ul>
+    <div class="tab-content result-content">
+      <div class="tab-pane fade show active" id="overview-pane" role="tabpanel" aria-labelledby="overview-tab" tabindex="0"><div id="overview-cards" class="row g-3 mb-4"></div><div id="overview-matrix"></div></div>
+      <div class="tab-pane fade" id="efficiency-pane" role="tabpanel" aria-labelledby="efficiency-tab" tabindex="0"><div id="efficiency-table"></div><div class="chart-panel"><div class="chart-heading"><h3 class="h5">Headline vs. estimated cost</h3><p>Each point is one model/task pair; unlike tasks are never combined.</p></div><div class="chart-frame"><canvas id="efficiency-chart" role="img" aria-label="Scatter chart of task headline values versus estimated cost"></canvas></div></div></div>
+      <div class="tab-pane fade" id="task-detail-pane" role="tabpanel" aria-labelledby="task-detail-tab" tabindex="0"><div class="task-detail-toolbar"><label for="task-detail-select" class="form-label">Task</label><select id="task-detail-select" class="form-select"></select></div><div id="task-detail-view"></div></div>
+      <div class="tab-pane fade" id="items-pane" role="tabpanel" aria-labelledby="items-tab" tabindex="0"><fieldset class="filter-bar"><legend class="visually-hidden">Filter item results</legend><label class="form-check"><input id="filter-disagreements" class="form-check-input" type="checkbox"><span class="form-check-label">Disagreements only</span></label><label class="form-check"><input id="filter-parse" class="form-check-input" type="checkbox"><span class="form-check-label">Parse failures only</span></label><label class="form-check"><input id="filter-alignment" class="form-check-input" type="checkbox"><span class="form-check-label">Alignment problems only</span></label></fieldset><p id="items-summary" class="small text-secondary" aria-live="polite"></p><div id="items-list"></div><nav id="items-pagination" aria-label="Item results pages"></nav></div>
+      <div class="tab-pane fade" id="run-info-pane" role="tabpanel" aria-labelledby="run-info-tab" tabindex="0"><div id="run-info-view"></div></div>
+    </div>
+  </section>
+</main>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}" defer></script><script src="{{ url_for('static', filename='js/run.js') }}" defer></script>{% endblock %}

@@ -47,11 +47,11 @@ def install_request_protections(app: Flask) -> None:
         if not is_loopback_host(_request_hostname(request.host)):
             return _json_error("invalid_host", "Requests must use a loopback Host header.", 400)
 
-        if request.method in {"POST", "DELETE"}:
+        if request.method in {"POST", "PATCH", "DELETE"}:
             if request.mimetype != "application/json":
                 return _json_error(
                     "json_required",
-                    "POST and DELETE requests require Content-Type: application/json.",
+                    "State-changing requests require Content-Type: application/json.",
                     415,
                 )
             origin = request.headers.get("Origin")

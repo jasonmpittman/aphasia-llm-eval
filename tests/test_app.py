@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 import pytest
 
@@ -39,12 +40,54 @@ def test_non_loopback_override_logs_warning(caplog):
     assert "no authentication" in caplog.text
 
 
-def test_placeholder_index(client):
+def test_frontend_pages_render_without_inline_scripts(client):
     response = client.get("/", headers={"Host": "localhost:5000"})
 
     assert response.status_code == 200
-    assert b"Application scaffold ready" in response.data
+    assert b"Compare models against verified language-analysis gold" in response.data
+    assert b'id="model-list"' in response.data
+    assert b'id="task-list"' in response.data
+    assert b'id="confirmation-modal"' in response.data
     assert "Access-Control-Allow-Origin" not in response.headers
+
+    run_page = client.get("/runs/example-id", headers={"Host": "localhost:5000"})
+    assert run_page.status_code == 200
+    assert b'data-run-id="example-id"' in run_page.data
+    assert b'id="overview-tab"' in run_page.data
+    assert b'id="efficiency-tab"' in run_page.data
+    assert b'id="task-detail-tab"' in run_page.data
+    assert b'id="items-tab"' in run_page.data
+    assert b'id="run-info-tab"' in run_page.data
+
+    history = client.get("/history", headers={"Host": "localhost:5000"})
+    assert history.status_code == 200
+    assert b"Run history" in history.data
+    assert b'id="history-body"' in history.data
+
+    for page in (response, run_page, history):
+        html = page.get_data(as_text=True)
+        assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html)
+        assert 'href="#main-content"' in html
+        assert "Research evaluation only" in html
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/static/css/app.css",
+        "/static/js/common.js",
+        "/static/js/select.js",
+        "/static/js/run.js",
+        "/static/js/history.js",
+        "/static/vendor/bootstrap.min.css",
+        "/static/vendor/bootstrap.bundle.min.js",
+        "/static/vendor/chart.umd.min.js",
+    ],
+)
+def test_frontend_assets_are_vendored(client, path):
+    response = client.get(path, headers={"Host": "localhost"})
+
+    assert response.status_code == 200
 
 
 def test_health(client):
@@ -99,6 +142,17 @@ def test_non_json_post_is_rejected(client):
     assert response.get_json()["error"]["code"] == "json_required"
 
 
+def test_non_json_patch_is_rejected(client):
+    response = client.patch(
+        "/api/runs/missing",
+        data="not json",
+        headers={"Host": "localhost", "Content-Type": "text/plain"},
+    )
+
+    assert response.status_code == 415
+    assert response.get_json()["error"]["code"] == "json_required"
+
+
 def test_loopback_origin_reaches_normal_routing(client):
     response = client.post(
         "/api/health",
@@ -114,4 +168,8 @@ def test_security_headers_are_present(client):
 
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["Referrer-Policy"] == "no-referrer"
-    assert "default-src 'self'" in response.headers["Content-Security-Policy"]
+    policy = response.headers["Content-Security-Policy"]
+    assert "default-src 'self'" in policy
+    assert "script-src 'self'" in policy
+    assert "style-src 'self'" in policy
+    assert "'unsafe-inline'" not in policy

@@ -1,3 +1,8 @@
 # Optional reference prices in USD per 1 million tokens.
 # A model listed here takes priority over gateway-provided pricing.
+#
+# models:
+#   example-model:
+#     input_usd_per_1m_tokens: 1.00
+#     output_usd_per_1m_tokens: 2.00
 models: {}

@@ -8,20 +8,20 @@ from typing import Any
 
 from flask import Flask
 
-from .api import api_blueprints
-from .config import is_loopback_host, load_config, validate_required_config
-from .db import Database
-from .security import install_request_protections
-from .services.litellm_client import LiteLLMClient
-from .services.orchestrator import RunOrchestrator
-from .services.pricing import PricingService
-from .views import blueprint as web_blueprint
-
 __version__ = "0.1.0"
 
 
 def create_app(test_config: Mapping[str, Any] | None = None) -> Flask:
     """Create and configure the localhost-only Flask application."""
+
+    from .api import api_blueprints
+    from .config import is_loopback_host, load_config, validate_required_config
+    from .db import Database
+    from .security import install_request_protections
+    from .services.litellm_client import LiteLLMClient
+    from .services.orchestrator import RunOrchestrator
+    from .services.pricing import PricingService
+    from .views import blueprint as web_blueprint
 
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_mapping(load_config())

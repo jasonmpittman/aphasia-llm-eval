@@ -22,7 +22,9 @@ ciu_count: 74
 `[input]` contains `key: value` scalar fields and `[input.<name>]` contains a
 multiline field. The task's parser interprets `[gold]`: `kv` accepts scalar
 `key: value` pairs, while `token_table` accepts tab-separated
-`index<TAB>token<TAB>tag` rows. See README section 9.1 for the complete format.
+`index<TAB>token<TAB>tag` rows. See
+[`docs/gold-file-format.md`](../docs/gold-file-format.md) for the complete
+format and validation rules.
 
 Synthetic demonstration files belong in `examples/` and must be clearly
 labeled as synthetic. Run the validator against them with:

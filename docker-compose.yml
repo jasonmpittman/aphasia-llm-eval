@@ -1,0 +1,22 @@
+services:
+  app:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 5000
+      ALLOW_NON_LOCAL_BIND: "true"
+      DATABASE_URL: sqlite:////data/aphasia_eval.db
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - aphasia-eval-data:/data
+      - ./config:/app/config:ro
+      - ./tasks:/app/tasks:ro
+      - ./gold_tasks:/app/gold_tasks:ro
+    restart: unless-stopped
+
+volumes:
+  aphasia-eval-data:

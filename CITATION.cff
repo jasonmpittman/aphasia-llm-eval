@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+title: "aphasia-llm-eval"
+type: software
+version: 0.1.0
+authors:
+  - family-names: "TODO"
+    given-names: "TODO"
+    affiliation: "TODO"
+repository-code: "https://github.com/OWNER/aphasia-llm-eval"
+license: GPL-3.0-only
+abstract: >-
+  A local-first research application for comparing language models on
+  configuration-driven aphasia language-analysis tasks.
+keywords:
+  - aphasia
+  - language models
+  - evaluation
+  - clinical research

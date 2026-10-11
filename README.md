@@ -2,11 +2,11 @@
 
 **Compare a zoo of large language models on aphasia clinical tasks, side by side, through a LiteLLM gateway.**
 
-You choose which models and which tasks to run. The app sends each task to each model, compares every answer with a verified gold file stored in this repository, and shows that comparison next to input tokens, output tokens, estimated cost, and time. Results export to CSV, JSON, XLSX, and PDF.
+You choose which models and which tasks to run. The app sends each task to each model, compares every answer with a configured verified gold file, and shows that comparison next to input tokens, output tokens, estimated cost, and time. Results export to CSV, JSON, XLSX, and PDF.
 
 v0.1 ships two tasks: **Correct Information Unit (CIU) scoring** and **parts-of-speech (POS) breakdown**. Tasks are defined in configuration files, so new benchmarks are added without changing application code in the common case.
 
-> **Status:** Specification and baseline. This README is the build spec for v0.1. Items marked **[Verify]** depend on how the target LiteLLM proxy is configured and must be confirmed against the live endpoint before they are treated as settled.
+> **Status:** v0.1 beta candidate. The application and synthetic demo workflow are implemented. Maintainer-verified gold files and finalized clinical rule text are still required before real evaluation use. Items marked **[Verify]** depend on the target LiteLLM proxy; run `python scripts/check_endpoint.py --model <model-id>` to inspect them.
 >
 > **Not a clinical tool.** This project evaluates language models for research. It must not be used to diagnose, treat, or make care decisions about any person. Do not send protected health information (PHI) or identifiable patient data to the app. See [Data and privacy](#15-data-and-privacy).
 >
@@ -784,33 +784,52 @@ The threat model is a single user on a trusted machine. The main risks are leaki
 git clone https://github.com/<org>/aphasia-llm-eval.git
 cd aphasia-llm-eval
 
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-pip install --no-deps -e .
+python -m pip install -r requirements.txt
+python -m pip install --no-deps -e .
 
 cp .env.example .env
 # edit .env and set LITELLM_API_KEY
 
-flask --app aphasia_eval run         # http://127.0.0.1:5000
+flask --app aphasia_eval run --host 127.0.0.1 --port 5000
+# open http://127.0.0.1:5000
 ```
 
-Demo mode with the synthetic example gold files:
+The repository intentionally does not include real gold files. Until verified
+gold is available, start in demo mode with the clearly synthetic examples:
 
 ```bash
-GOLD_TASKS_DIR=gold_tasks/examples flask --app aphasia_eval run
+GOLD_TASKS_DIR=gold_tasks/examples \
+  flask --app aphasia_eval run --host 127.0.0.1 --port 5000
+```
+
+To verify the live LiteLLM gateway independently of the UI, list its models
+and send one minimal completion. Supplying `--model` avoids relying on the
+first discovered model:
+
+```bash
+python scripts/check_endpoint.py --model <model-id>
 ```
 
 Docker:
 
 ```bash
-docker compose up --build            # reachable at http://127.0.0.1:5000 only
+# .env must exist first; set GOLD_TASKS_DIR=gold_tasks/examples for demo data.
+docker compose up --build
+# reachable at http://127.0.0.1:5000 only
 ```
+
+Compose runs Waitress as an unprivileged container user, persists SQLite in a
+named volume, and mounts `config/`, `tasks/`, and `gold_tasks/` read-only. The
+container listens on all container interfaces, but Compose publishes the port
+only on the host loopback address. To use a private gold directory outside the
+repository, replace the `gold_tasks` bind mount with that directory.
 
 Tests:
 
 ```bash
-pip install -r requirements-dev.txt
+python -m pip install -r requirements-dev.txt
 # Live gateway tests read LITELLM_BASE_URL and LITELLM_API_KEY from .env.
 pytest
 ```
@@ -832,7 +851,10 @@ pytest
 
 **Contributing.** Contributions are welcome: tasks, comparators, bug fixes, documentation. Read `CONTRIBUTING.md`, follow the code of conduct, run `ruff` and `pytest`, and complete the gold provenance checklist in the PR template for any gold data.
 
-**License.** GNU General Public License v3.0. See `LICENSE`. Vendored frontend libraries keep their own licenses in `static/vendor/LICENSES.md`. Gold files declare their own data license in `gold_tasks/README.md`.
+**License.** GNU General Public License v3.0. See `LICENSE`. Vendored frontend
+libraries keep their license files alongside the assets in
+`src/aphasia_eval/static/vendor/`. Gold files declare their own data license in
+`gold_tasks/README.md`.
 
 **References** (from the author's knowledge, not re-checked while writing this spec; verify details before citing):
 

@@ -1,0 +1,12 @@
+# Synthetic test fixture. This is not clinical or participant data.
+=== item: words_001 ===
+[input.text]
+blue square
+[gold]
+word_count: 2
+
+=== item: words_002 ===
+[input.text]
+one two three
+[gold]
+word_count: 3

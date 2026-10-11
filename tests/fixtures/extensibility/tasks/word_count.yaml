@@ -1,0 +1,36 @@
+schema_version: 1
+task_id: word_count
+title: Synthetic Word Count
+category: test-fixture
+version: "0.1.0"
+description: Counts whitespace-delimited words in a synthetic phrase.
+
+gold:
+  file: gold_word_count.txt
+  parser: kv
+
+input:
+  fields: [text]
+
+prompt:
+  system: Return JSON only. This is a synthetic software test.
+  user_template: |
+    Count the whitespace-delimited words in this synthetic phrase:
+    {text}
+    Return JSON: {{"word_count": <integer>}}
+
+output:
+  format: json
+  schema:
+    type: object
+    required: [word_count]
+    properties:
+      word_count: {type: integer, minimum: 0}
+    additionalProperties: false
+
+comparison:
+  type: numeric_fields
+  fields: [word_count]
+  tolerance: {word_count: 0}
+
+headline: {stat: mean_abs_diff, field: word_count, better: lower}

@@ -1,0 +1,195 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+import yaml
+
+from aphasia_eval.services.task_loader import (
+    load_task_file,
+    load_tasks,
+    main,
+    render_prompt,
+    validate_prompt_templates,
+)
+
+ROOT = Path(__file__).parents[1]
+SCHEMA_PATH = ROOT / "tasks/schema/task.schema.json"
+
+
+def _read_task(name: str):
+    return yaml.safe_load((ROOT / f"tasks/{name}.yaml").read_text(encoding="utf-8"))
+
+
+def test_example_tasks_validate_with_gold_and_hashes():
+    results = load_tasks(ROOT / "tasks", ROOT / "gold_tasks/examples")
+
+    assert [result.task_id for result in results] == ["ciu_scoring", "pos_breakdown"]
+    assert all(result.enabled for result in results)
+    ciu = results[0].task
+    assert ciu is not None and ciu.gold is not None
+    assert len(ciu.gold.items) == 5
+    assert ciu.task_sha256 == hashlib.sha256(ciu.path.read_bytes()).hexdigest()
+    assert len(ciu.prompt_sha256) == 64
+
+
+def test_missing_real_gold_disables_each_task_without_stopping_loader(tmp_path):
+    results = load_tasks(ROOT / "tasks", tmp_path)
+
+    assert len(results) == 2
+    assert all(not result.enabled for result in results)
+    assert all(any("gold file not found" in error for error in result.errors) for result in results)
+    assert all(result.task is not None and result.task.gold is None for result in results)
+
+
+def test_plain_and_numbered_token_renderers():
+    ciu = _read_task("ciu_scoring")
+    prompt = render_prompt(
+        ciu,
+        {"transcript": "Birds sing.", "stimulus": "Synthetic", "duration_seconds": 2},
+    )
+    assert "Birds sing." in prompt.user
+    assert '{"total_words": <integer>, "ciu_count": <integer>}' in prompt.user
+
+    pos = _read_task("pos_breakdown")
+    prompt = render_prompt(
+        pos,
+        {"tokens": [{"i": 1, "token": "Blue"}, {"i": 2, "token": "sky"}]},
+    )
+    assert "1\tBlue\n2\tsky" in prompt.user
+    assert "ADJ, ADP, ADV" in prompt.user
+    assert '{"tags": [{"i": 1, "pos": "DET"}' in prompt.user
+
+
+@pytest.mark.parametrize(
+    "template, message",
+    [
+        ("{transcript.value}", "unsafe placeholder"),
+        ("{transcript[0]}", "unsafe placeholder"),
+        ("{transcript!r}", "must not use conversion"),
+        ("{transcript:>10}", "must not use conversion or formatting"),
+        ("{undeclared}", "undeclared placeholder"),
+        ("an unmatched { brace", "invalid braces"),
+    ],
+)
+def test_restricted_prompt_rendering_rejects_unsafe_fields(template, message):
+    task = _read_task("ciu_scoring")
+    task["prompt"]["user_template"] = template
+
+    with pytest.raises(ValueError, match=message):
+        validate_prompt_templates(task)
+
+
+def test_rendering_rejects_missing_or_bad_renderer_inputs():
+    ciu = _read_task("ciu_scoring")
+    with pytest.raises(ValueError, match="missing required input"):
+        render_prompt(ciu, {})
+
+    pos = _read_task("pos_breakdown")
+    with pytest.raises(ValueError, match="non-empty tokens list"):
+        render_prompt(pos, {"tokens": []})
+    with pytest.raises(ValueError, match="invalid numbered token index"):
+        render_prompt(pos, {"tokens": [{"i": 0, "token": "word"}]})
+
+
+def test_invalid_yaml_is_skipped_while_valid_sibling_loads(tmp_path):
+    tasks_dir = tmp_path / "tasks"
+    gold_dir = tmp_path / "gold"
+    tasks_dir.mkdir()
+    gold_dir.mkdir()
+    (tasks_dir / "ciu_scoring.yaml").write_text(
+        (ROOT / "tasks/ciu_scoring.yaml").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    (tasks_dir / "broken.yaml").write_text("schema_version: [", encoding="utf-8")
+    (gold_dir / "gold_ciu_scoring.txt").write_text(
+        (ROOT / "gold_tasks/examples/gold_ciu_scoring.txt").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    results = load_tasks(tasks_dir, gold_dir, SCHEMA_PATH)
+
+    assert len(results) == 2
+    assert results[0].task_id == "broken"
+    assert not results[0].enabled
+    assert "could not read task YAML" in results[0].errors[0]
+    assert results[1].enabled
+
+
+def test_schema_filename_bad_number_and_unknown_inputs_disable_task(tmp_path):
+    task_path = tmp_path / "wrong_name.yaml"
+    gold_dir = tmp_path / "gold"
+    gold_dir.mkdir()
+    task_path.write_text(
+        (ROOT / "tasks/ciu_scoring.yaml").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    (gold_dir / "gold_ciu_scoring.txt").write_text(
+        "=== item: bad ===\n"
+        "[input]\nunknown: field\n"
+        "[input.transcript]\nSynthetic words.\n"
+        "[gold]\ntotal_words: not-a-number\nciu_count: 2\n",
+        encoding="utf-8",
+    )
+
+    result = load_task_file(task_path, gold_dir=gold_dir, schema_path=SCHEMA_PATH)
+
+    assert not result.enabled
+    assert any("must match filename stem" in error for error in result.errors)
+    # Filename mismatches prevent reading gold; the type/input checks work once the name is valid.
+    task_path = tmp_path / "ciu_scoring.yaml"
+    task_path.write_text(
+        (ROOT / "tasks/ciu_scoring.yaml").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    result = load_task_file(task_path, gold_dir=gold_dir, schema_path=SCHEMA_PATH)
+    assert any("unknown input field" in error for error in result.errors)
+    assert any("gold output error at total_words" in error for error in result.errors)
+
+
+def test_task_schema_and_output_schema_failures_are_reported(tmp_path):
+    invalid_task = _read_task("ciu_scoring")
+    del invalid_task["title"]
+    path = tmp_path / "ciu_scoring.yaml"
+    path.write_text(yaml.safe_dump(invalid_task), encoding="utf-8")
+    result = load_task_file(path, gold_dir=tmp_path, schema_path=SCHEMA_PATH)
+    assert result.task is None
+    assert any("task schema error" in error and "title" in error for error in result.errors)
+
+    invalid_task = _read_task("ciu_scoring")
+    invalid_task["output"]["schema"] = {"type": "not-a-json-schema-type"}
+    path.write_text(yaml.safe_dump(invalid_task), encoding="utf-8")
+    result = load_task_file(path, gold_dir=tmp_path, schema_path=SCHEMA_PATH)
+    assert result.task is not None
+    assert any("invalid output JSON Schema" in error for error in result.errors)
+
+    invalid_task = _read_task("ciu_scoring")
+    invalid_task["derived"][0]["args"] = ["ciu_count"]
+    path.write_text(yaml.safe_dump(invalid_task), encoding="utf-8")
+    result = load_task_file(path, gold_dir=tmp_path, schema_path=SCHEMA_PATH)
+    assert result.task is None
+    assert any("too short" in error for error in result.errors)
+
+
+def test_cli_reports_success_and_failure(capsys, tmp_path):
+    assert (
+        main(
+            [
+                "--validate",
+                "--tasks-dir",
+                str(ROOT / "tasks"),
+                "--gold-dir",
+                str(ROOT / "gold_tasks/examples"),
+            ]
+        )
+        == 0
+    )
+    assert "OK ciu_scoring: 5 gold item(s)" in capsys.readouterr().out
+
+    empty_tasks = tmp_path / "tasks"
+    empty_tasks.mkdir()
+    (empty_tasks / "schema").mkdir()
+    (empty_tasks / "schema/task.schema.json").write_text(
+        json.dumps(json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))), encoding="utf-8"
+    )
+    assert main(["--validate", "--tasks-dir", str(empty_tasks)]) == 1
+    assert "No task YAML files found" in capsys.readouterr().out

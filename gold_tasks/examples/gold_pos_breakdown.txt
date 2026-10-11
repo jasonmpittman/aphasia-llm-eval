@@ -1,0 +1,39 @@
+# SYNTHETIC DEMONSTRATION DATA ONLY. Not clinical data; no accuracy claim.
+=== item: synthetic_pos_001 ===
+[gold]
+1	The	DET
+2	dog	NOUN
+3	runs	VERB
+4	.	PUNCT
+
+=== item: synthetic_pos_002 ===
+[gold]
+1	Birds	NOUN
+2	fly	VERB
+3	quickly	ADV
+4	.	PUNCT
+
+=== item: synthetic_pos_003 ===
+[gold]
+1	We	PRON
+2	made	VERB
+3	tea	NOUN
+4	.	PUNCT
+
+=== item: synthetic_pos_004 ===
+[gold]
+1	A	DET
+2	blue	ADJ
+3	kite	NOUN
+4	rose	VERB
+5	.	PUNCT
+
+=== item: synthetic_pos_005 ===
+[gold]
+1	Two	NUM
+2	birds	NOUN
+3	sit	VERB
+4	near	ADP
+5	the	DET
+6	window	NOUN
+7	.	PUNCT

@@ -1,0 +1,56 @@
+schema_version: 1
+task_id: ciu_scoring
+title: Correct Information Unit (CIU) Scoring
+category: discourse
+version: "0.1.0"
+description: >
+  The model counts total words and Correct Information Units in a
+  transcribed discourse sample.
+references:
+  - "Nicholas LE, Brookshire RH (1993). J Speech Hear Res 36(2):338-350."
+
+gold:
+  file: gold_ciu_scoring.txt
+  parser: kv
+
+input:
+  fields: [transcript]
+  optional_fields: [stimulus, duration_seconds]
+
+prompt:
+  system: |
+    You are helping with a research evaluation of language models on aphasia
+    discourse analysis. Follow the scoring rules exactly. Reply with the
+    requested JSON object and nothing else.
+  user_template: |
+    SCORING RULES (replace with your lab's CIU rules):
+    - Count every word in the transcript according to the counting rules below.
+    - A word is a CIU if it is intelligible in context, accurate in relation to
+      the stimulus or topic, and relevant to and informative about it.
+    - <fillers, repetitions, revisions, unintelligible material: state the rules>
+
+    Transcript:
+    {transcript}
+
+    Return JSON: {{"total_words": <integer>, "ciu_count": <integer>}}
+
+output:
+  format: json
+  schema:
+    type: object
+    required: [total_words, ciu_count]
+    properties:
+      total_words: {type: integer, minimum: 0}
+      ciu_count: {type: integer, minimum: 0}
+    additionalProperties: true
+
+derived:
+  - {name: percent_ciu, function: percentage, args: [ciu_count, total_words]}
+  - {name: ciu_per_minute, function: per_minute, args: [ciu_count, duration_seconds], optional: true}
+
+comparison:
+  type: numeric_fields
+  fields: [total_words, ciu_count, percent_ciu]
+  tolerance: {total_words: 0, ciu_count: 0, percent_ciu: 0.5}
+
+headline: {stat: mean_abs_diff, field: ciu_count, better: lower}

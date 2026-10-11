@@ -1,0 +1,68 @@
+schema_version: 1
+task_id: pos_breakdown
+title: Parts-of-Speech Breakdown
+category: morphosyntax
+version: "0.1.0"
+description: >
+  The model tags each numbered token of a transcript with one part-of-speech
+  tag. The app derives the per-category breakdown.
+references:
+  - "Universal Dependencies UPOS tagset, https://universaldependencies.org"
+
+gold:
+  file: gold_pos_breakdown.txt
+  parser: token_table
+
+input:
+  renderer: numbered_tokens
+
+tagset: [ADJ, ADP, ADV, AUX, CCONJ, DET, INTJ, NOUN, NUM, PART, PRON, PROPN, PUNCT, SCONJ, SYM, VERB, X]
+
+prompt:
+  system: |
+    You are helping with a research evaluation of language models on
+    part-of-speech tagging of speech transcripts from people with aphasia.
+    Reply with the requested JSON object and nothing else.
+  user_template: |
+    Tag every numbered token with exactly one tag from this list:
+    {tagset}
+
+    Rules:
+    - Tag each word as it is used in context, even if the utterance is
+      fragmentary or ungrammatical.
+    - <state how to treat fillers, false starts, neologisms, and unintelligible
+      tokens, matching the conventions behind the gold file>
+    - Do not merge, split, skip, or reorder tokens.
+
+    Tokens:
+    {numbered_tokens}
+
+    Return JSON: {{"tags": [{{"i": 1, "pos": "DET"}}, {{"i": 2, "pos": "NOUN"}}, ...]}}
+
+output:
+  format: json
+  schema:
+    type: object
+    required: [tags]
+    properties:
+      tags:
+        type: array
+        items:
+          type: object
+          required: [i, pos]
+          properties:
+            i: {type: integer, minimum: 1}
+            pos: {type: string}
+    additionalProperties: true
+
+derived:
+  - {name: counts_by_pos, function: counts_by, args: [tags.pos]}
+  - {name: noun_verb_ratio, function: ratio, args: [counts_by_pos.NOUN, counts_by_pos.VERB]}
+
+comparison:
+  type: token_tags
+  tag_field: pos
+  index_field: i
+  breakdown: true
+
+headline: {stat: token_agreement, better: higher}

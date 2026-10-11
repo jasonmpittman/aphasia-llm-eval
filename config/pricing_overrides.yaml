@@ -1,0 +1,3 @@
+# Optional reference prices in USD per 1 million tokens.
+# A model listed here takes priority over gateway-provided pricing.
+models: {}

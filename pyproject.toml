@@ -29,7 +29,7 @@ dependencies = [
   "PyYAML==6.0.2",
   "reportlab==4.4.3",
   "SQLAlchemy==2.0.43",
-  "tiktoken==0.11.0",
+  "tiktoken==0.14.0",
   "waitress==3.0.2",
 ]
 

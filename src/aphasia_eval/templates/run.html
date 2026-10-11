@@ -2,17 +2,17 @@
 {% block title %}Run · aphasia-llm-eval{% endblock %}
 {% block content %}
 <main id="main-content" class="container-xl page-shell" data-run-id="{{ run_id }}">
-  <section class="run-header">
+  <section class="run-header bento-card">
     <div><p class="eyebrow">Evaluation run</p><h1 id="run-title">Loading run…</h1><p class="run-id"><span class="visually-hidden">Run identifier:</span>{{ run_id }}</p></div>
     <div class="d-flex align-items-center gap-2 flex-wrap"><span id="run-status" class="status-pill status-pending" aria-live="polite">Loading</span><div class="dropdown"><button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Export</button><ul class="dropdown-menu dropdown-menu-end"><li><a class="dropdown-item" href="{{ url_for('exports_api.export_run', run_id=run_id, format='csv') }}">CSV package</a></li><li><a class="dropdown-item" href="{{ url_for('exports_api.export_run', run_id=run_id, format='json') }}">JSON</a></li><li><a class="dropdown-item" href="{{ url_for('exports_api.export_run', run_id=run_id, format='xlsx') }}">Excel workbook</a></li><li><a class="dropdown-item" href="{{ url_for('exports_api.export_run', run_id=run_id, format='pdf') }}">PDF report</a></li></ul></div><button id="cancel-run" class="btn btn-outline-danger" type="button" disabled>Cancel run</button></div>
   </section>
   <div id="run-alert" class="alert alert-danger d-none" role="alert" aria-live="assertive"></div>
-  <section class="progress-panel" aria-labelledby="progress-title">
+  <section class="progress-panel bento-card" aria-labelledby="progress-title">
     <div class="d-flex justify-content-between align-items-end gap-3"><div><p class="section-kicker">Live execution</p><h2 id="progress-title" class="h4">Progress</h2></div><strong id="progress-label">0 of 0 jobs</strong></div>
     <progress id="overall-progress" class="run-progress" aria-label="Overall run progress" max="100" value="0">0%</progress>
     <div id="model-progress" class="model-progress-list" aria-live="polite"></div>
   </section>
-  <section class="results-shell" aria-labelledby="results-title">
+  <section class="results-shell bento-card" aria-labelledby="results-title">
     <div class="section-heading"><div><p class="section-kicker">Analysis</p><h2 id="results-title">Run results</h2></div><span id="result-refresh" class="text-secondary small" aria-live="polite">Waiting for results…</span></div>
     <ul class="nav nav-tabs result-tabs" id="result-tabs" role="tablist">
       <li class="nav-item" role="presentation"><button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview-pane" type="button" role="tab" aria-controls="overview-pane" aria-selected="true">Overview</button></li>

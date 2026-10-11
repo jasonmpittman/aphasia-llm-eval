@@ -48,6 +48,11 @@ def test_frontend_pages_render_without_inline_scripts(client):
     assert b'id="model-list"' in response.data
     assert b'id="task-list"' in response.data
     assert b'id="confirmation-modal"' in response.data
+    assert b'data-bs-theme="dark"' in response.data
+    assert b'id="app-sidebar"' in response.data
+    assert b'id="sidebar-toggle"' in response.data
+    assert b'class="utility-header"' in response.data
+    assert b"bento-hero-grid" in response.data
     assert "Access-Control-Allow-Origin" not in response.headers
 
     run_page = client.get("/runs/example-id", headers={"Host": "localhost:5000"})

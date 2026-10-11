@@ -1,12 +1,57 @@
 (function () {
   "use strict";
 
-  const themeQuery = window.matchMedia("(prefers-color-scheme: dark)");
-  const applyTheme = () => {
-    document.documentElement.dataset.bsTheme = themeQuery.matches ? "dark" : "light";
-  };
-  applyTheme();
-  themeQuery.addEventListener("change", applyTheme);
+  const sidebarKey = "aphasia-llm-eval:sidebar-collapsed:v1";
+  const sidebarQuery = window.matchMedia("(max-width: 991.98px)");
+  const sidebar = document.getElementById("app-sidebar");
+  const sidebarToggle = document.getElementById("sidebar-toggle");
+  const sidebarScrim = document.getElementById("sidebar-scrim");
+
+  function storedSidebarState() {
+    try { return localStorage.getItem(sidebarKey) === "true"; }
+    catch (_error) { return false; }
+  }
+
+  function updateSidebarAccessibility() {
+    const expanded = sidebarQuery.matches
+      ? document.body.classList.contains("sidebar-open")
+      : !document.body.classList.contains("sidebar-collapsed");
+    sidebarToggle.setAttribute("aria-expanded", String(expanded));
+    sidebarToggle.setAttribute("aria-label", sidebarQuery.matches
+      ? (expanded ? "Close navigation" : "Open navigation")
+      : (expanded ? "Collapse navigation" : "Expand navigation"));
+    sidebar.inert = sidebarQuery.matches && !expanded;
+  }
+
+  function initializeSidebar() {
+    document.body.classList.toggle("sidebar-collapsed", !sidebarQuery.matches && storedSidebarState());
+    document.body.classList.remove("sidebar-open");
+    updateSidebarAccessibility();
+  }
+
+  sidebarToggle.addEventListener("click", () => {
+    if (sidebarQuery.matches) {
+      document.body.classList.toggle("sidebar-open");
+    } else {
+      const collapsed = document.body.classList.toggle("sidebar-collapsed");
+      try { localStorage.setItem(sidebarKey, String(collapsed)); } catch (_error) { /* noop */ }
+    }
+    updateSidebarAccessibility();
+  });
+  sidebarScrim.addEventListener("click", () => {
+    document.body.classList.remove("sidebar-open");
+    sidebarToggle.focus();
+    updateSidebarAccessibility();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && document.body.classList.contains("sidebar-open")) {
+      document.body.classList.remove("sidebar-open");
+      sidebarToggle.focus();
+      updateSidebarAccessibility();
+    }
+  });
+  sidebarQuery.addEventListener("change", initializeSidebar);
+  initializeSidebar();
 
   function element(tag, options = {}, children = []) {
     const node = document.createElement(tag);

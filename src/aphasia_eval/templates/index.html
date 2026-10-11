@@ -2,13 +2,14 @@
 {% block title %}New run · aphasia-llm-eval{% endblock %}
 {% block content %}
 <main id="main-content" class="container-xl page-shell" data-confirmation-threshold="{{ confirmation_threshold }}">
-  <section class="page-intro row align-items-end g-4">
-    <div class="col-lg-8"><p class="eyebrow">Evaluation workspace</p><h1>Compare models against verified language-analysis gold.</h1><p class="lead mb-0">Choose models and tasks, set the run controls, then inspect agreement and efficiency without collapsing unlike tasks into one score.</p></div>
-    <div class="col-lg-4"><div class="principle-card"><span class="principle-number">01</span><div><strong>Traceable by design</strong><span>Prompts, task files, and gold data are hashed with every run.</span></div></div></div>
+  <section class="page-intro bento-hero-grid">
+    <article class="bento-card hero-bento"><p class="eyebrow">Evaluation workspace</p><h1>Compare models against verified language-analysis gold.</h1><p class="lead mb-0">Choose models and tasks, set the run controls, then inspect agreement and efficiency without collapsing unlike tasks into one score.</p><div class="hero-signal" aria-label="Workflow"><span>01 Select</span><span>02 Evaluate</span><span>03 Compare</span></div></article>
+    <article class="principle-card bento-card"><span class="principle-number">01</span><div><strong>Traceable by design</strong><span>Prompts, task files, and gold data are hashed with every run.</span></div></article>
+    <article class="guardrail-card bento-card"><span class="guardrail-orbit" aria-hidden="true"></span><div><strong>Local research workspace</strong><span>Results stay in local SQLite. Only configured prompts are sent through your gateway.</span></div></article>
   </section>
   <div id="selection-alert" class="alert alert-danger d-none" role="alert" aria-live="assertive"></div>
   <form id="run-form" novalidate>
-    <section class="workspace-section" aria-labelledby="models-title">
+    <section class="workspace-section bento-workspace" aria-labelledby="models-title">
       <div class="section-heading"><div><p class="section-kicker">Step 1</p><h2 id="models-title">Models</h2></div><div class="selection-count" id="model-count" aria-live="polite">Loading models…</div></div>
       <div class="control-surface">
         <div class="row g-3 align-items-end">
@@ -21,12 +22,12 @@
         <div class="preset-save row g-2 align-items-end"><div class="col-sm-6 col-lg-4"><label for="preset-name" class="form-label">Preset name</label><input id="preset-name" class="form-control" maxlength="60" placeholder="e.g. Baseline models"></div><div class="col-auto"><button id="save-preset" class="btn btn-secondary" type="button">Save selected models</button></div><div id="preset-message" class="col-12 form-text" aria-live="polite"></div></div>
       </div>
     </section>
-    <section class="workspace-section" aria-labelledby="tasks-title">
+    <section class="workspace-section bento-workspace" aria-labelledby="tasks-title">
       <div class="section-heading"><div><p class="section-kicker">Step 2</p><h2 id="tasks-title">Tasks</h2></div><div class="selection-count" id="task-count" aria-live="polite">Loading tasks…</div></div>
       <div id="task-loading" class="loading-state" role="status"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Validating task and gold files…</div>
       <div id="task-list" class="row g-3" aria-live="polite"></div>
     </section>
-    <section class="workspace-section" aria-labelledby="run-label-title">
+    <section class="workspace-section bento-workspace compact-bento" aria-labelledby="run-label-title">
       <div class="section-heading compact-heading"><div><p class="section-kicker">Step 3</p><h2 id="run-label-title">Name and settings</h2></div><button class="btn btn-outline-primary" type="button" data-bs-toggle="offcanvas" data-bs-target="#settings-panel" aria-controls="settings-panel">Adjust run settings</button></div>
       <div class="control-surface"><label for="run-label" class="form-label">Run label <span class="text-secondary">(optional)</span></label><input id="run-label" class="form-control form-control-lg" maxlength="200" placeholder="e.g. October baseline — zero temperature"></div>
     </section>

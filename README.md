@@ -651,7 +651,7 @@ Validation: at least one model and one task, models must be in the discovered li
 
 ## 12. User interface
 
-Responsive Bootstrap layout. Light and dark mode follow the OS. Keyboard accessible, with ARIA labels, adequate contrast, and no information carried by color alone.
+Responsive Bootstrap layout with a dark cobalt visual system, bento-grid content cards, a collapsible left navigation sidebar, and a sticky utility header. The sidebar becomes an overlay drawer on smaller screens. The interface is keyboard accessible, with ARIA labels, adequate contrast, and no information carried by color alone.
 
 ### 12.1 Select page (`/`)
 

@@ -1,45 +1,58 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light dark">
+    <meta name="color-scheme" content="dark">
     <title>{% block title %}aphasia-llm-eval{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   </head>
   <body data-page="{{ page_name }}">
     <a class="skip-link" href="#main-content">Skip to main content</a>
-    <nav class="navbar navbar-expand-md app-navbar" aria-label="Primary navigation">
-      <div class="container-xl">
-        <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('web.index') }}">
-          <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
-          <span>aphasia-llm-eval</span>
-        </a>
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#main-nav" aria-controls="main-nav" aria-expanded="false" aria-label="Toggle navigation">
-          <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="main-nav">
-          <ul class="navbar-nav ms-auto">
-            <li class="nav-item"><a class="nav-link{% if page_name == 'select' %} active{% endif %}"{% if page_name == 'select' %} aria-current="page"{% endif %} href="{{ url_for('web.index') }}">New run</a></li>
-            <li class="nav-item"><a class="nav-link{% if page_name == 'history' %} active{% endif %}"{% if page_name == 'history' %} aria-current="page"{% endif %} href="{{ url_for('web.history') }}">History</a></li>
-          </ul>
+    <div class="app-layout">
+      <aside id="app-sidebar" class="app-sidebar" aria-label="Application sidebar">
+        <div class="sidebar-brand-row">
+          <a class="sidebar-brand" href="{{ url_for('web.index') }}">
+            <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="sidebar-label brand-copy"><strong>aphasia</strong><small>llm eval</small></span>
+          </a>
         </div>
-      </div>
-    </nav>
-    <div class="safety-strip" role="note">
-      <div class="container-xl d-flex gap-2 align-items-center">
-        <span class="safety-icon" aria-hidden="true">!</span>
-        <span><strong>Research evaluation only.</strong> Not a clinical tool. Do not submit PHI or identifiable data.</span>
+        <div class="sidebar-section-label sidebar-label">Workspace</div>
+        <nav class="sidebar-nav" aria-label="Primary navigation">
+          <a class="sidebar-link{% if page_name == 'select' %} active{% endif %}"{% if page_name == 'select' %} aria-current="page"{% endif %} href="{{ url_for('web.index') }}" title="New evaluation"><span class="nav-glyph" aria-hidden="true">+</span><span class="sidebar-label">New evaluation</span></a>
+          <a class="sidebar-link{% if page_name == 'history' %} active{% endif %}"{% if page_name == 'history' %} aria-current="page"{% endif %} href="{{ url_for('web.history') }}" title="Run history"><span class="nav-glyph" aria-hidden="true">H</span><span class="sidebar-label">Run history</span></a>
+          {% if page_name == 'run' %}<a class="sidebar-link active" aria-current="page" href="{{ url_for('web.run_page', run_id=run_id) }}" title="Current run"><span class="nav-glyph" aria-hidden="true">R</span><span class="sidebar-label">Current run</span></a>{% endif %}
+        </nav>
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-safety">
+          <span class="safety-icon" aria-hidden="true">!</span>
+          <span class="sidebar-label"><strong>Research only</strong><small>Never submit PHI or identifiable data.</small></span>
+        </div>
+        <div class="sidebar-version sidebar-label">v0.1 beta track</div>
+      </aside>
+      <button id="sidebar-scrim" class="sidebar-scrim" type="button" aria-label="Close navigation" tabindex="-1"></button>
+      <div class="app-canvas">
+        <header class="utility-header">
+          <div class="utility-left">
+            <button id="sidebar-toggle" class="utility-icon-button" type="button" aria-controls="app-sidebar" aria-expanded="true" aria-label="Collapse navigation"><span aria-hidden="true">☰</span></button>
+            <div class="utility-context"><span>Evaluation workspace</span><strong>{% if page_name == 'select' %}New run{% elif page_name == 'history' %}History{% else %}Run detail{% endif %}</strong></div>
+          </div>
+          <div class="utility-actions"><span class="utility-chip"><span class="utility-dot" aria-hidden="true"></span>Local workspace</span>{% if page_name != 'select' %}<a class="btn btn-sm btn-primary" href="{{ url_for('web.index') }}">New evaluation</a>{% endif %}</div>
+        </header>
+        <div class="safety-strip" role="note">
+          <span class="safety-icon" aria-hidden="true">!</span>
+          <span><strong>Research evaluation only.</strong> Not a clinical tool. Do not submit PHI or identifiable data.</span>
+        </div>
+        {% block content %}{% endblock %}
+        <footer class="app-footer">
+          <div class="container-xl d-flex flex-column flex-md-row justify-content-between gap-2">
+            <span>Local-first model comparison for aphasia research workflows.</span>
+            <span>Costs are estimates · Results require expert interpretation</span>
+          </div>
+        </footer>
       </div>
     </div>
-    {% block content %}{% endblock %}
-    <footer class="app-footer">
-      <div class="container-xl d-flex flex-column flex-md-row justify-content-between gap-2">
-        <span>Local-first model comparison for aphasia research workflows.</span>
-        <span>Costs are estimates · Results require expert interpretation</span>
-      </div>
-    </footer>
     <script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/common.js') }}" defer></script>
     {% block scripts %}{% endblock %}

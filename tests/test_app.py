@@ -53,7 +53,12 @@ def test_health(client):
     assert response.status_code == 200
     assert response.get_json() == {
         "status": "ok",
-        "litellm": {"configured": True, "reachable": None},
+        "litellm": {
+            "configured": True,
+            "reachable": True,
+            "models_available": 4,
+            "error": None,
+        },
     }
 
 

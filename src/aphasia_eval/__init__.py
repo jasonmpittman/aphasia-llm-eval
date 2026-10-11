@@ -8,9 +8,13 @@ from typing import Any
 
 from flask import Flask
 
-from .api import health_blueprint
+from .api import api_blueprints
 from .config import is_loopback_host, load_config, validate_required_config
+from .db import Database
 from .security import install_request_protections
+from .services.litellm_client import LiteLLMClient
+from .services.orchestrator import RunOrchestrator
+from .services.pricing import PricingService
 from .views import blueprint as web_blueprint
 
 __version__ = "0.1.0"
@@ -41,9 +45,36 @@ def create_app(test_config: Mapping[str, Any] | None = None) -> Flask:
         )
 
     logging.getLogger().setLevel(str(app.config.get("LOG_LEVEL", "INFO")).upper())
+    database = app.config.get("DATABASE") or Database(str(app.config["DATABASE_URL"]))
+    database.create_all()
+    stale_count = database.mark_stale_runs_interrupted()
+    if stale_count:
+        app.logger.warning("Marked %s stale run(s) as interrupted.", stale_count)
+
+    litellm_client = app.config.get("LITELLM_CLIENT") or LiteLLMClient.from_config(app.config)
+    pricing = app.config.get("PRICING_SERVICE") or PricingService(
+        override_path=str(app.config["PRICING_OVERRIDES_PATH"]),
+        client=litellm_client,
+    )
+    orchestrator = app.config.get("RUN_ORCHESTRATOR") or RunOrchestrator(
+        database=database,
+        client=litellm_client,
+        pricing=pricing,
+        app_version=__version__,
+        litellm_host=str(app.config["LITELLM_BASE_URL"]),
+        max_concurrency_total=int(app.config["MAX_CONCURRENCY_TOTAL"]),
+        max_concurrency_per_model=int(app.config["MAX_CONCURRENCY_PER_MODEL"]),
+        synchronous=bool(app.config.get("RUN_SYNCHRONOUS", False)),
+    )
+    app.extensions["aphasia_eval_database"] = database
+    app.extensions["aphasia_eval_litellm"] = litellm_client
+    app.extensions["aphasia_eval_pricing"] = pricing
+    app.extensions["aphasia_eval_orchestrator"] = orchestrator
+
     install_request_protections(app)
     app.register_blueprint(web_blueprint)
-    app.register_blueprint(health_blueprint)
+    for blueprint in api_blueprints:
+        app.register_blueprint(blueprint)
     return app
 
 

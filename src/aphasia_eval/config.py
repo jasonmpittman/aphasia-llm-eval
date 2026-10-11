@@ -61,6 +61,9 @@ def load_config() -> dict[str, Any]:
         "DEFAULT_MAX_OUTPUT_TOKENS": _as_int("DEFAULT_MAX_OUTPUT_TOKENS", 2048),
         "DEFAULT_REPETITIONS": _as_int("DEFAULT_REPETITIONS", 1),
         "MODEL_ALLOWLIST": os.getenv("MODEL_ALLOWLIST", ""),
+        "PRICING_OVERRIDES_PATH": os.getenv(
+            "PRICING_OVERRIDES_PATH", "config/pricing_overrides.yaml"
+        ),
         "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
         "ALLOW_NON_LOCAL_BIND": _as_bool(os.getenv("ALLOW_NON_LOCAL_BIND")),
         "DEBUG": False,

@@ -33,6 +33,11 @@ labeled as synthetic. Run the validator against them with:
 GOLD_TASKS_DIR=gold_tasks/examples python -m aphasia_eval.services.task_loader --validate
 ```
 
+Supporting annotation records may be kept under `annotations/`. These files
+are for provenance and audit only: the application does not load them or send
+them to a model. Do not use an annotation sidecar to bypass the provenance,
+privacy, or redistribution requirements below.
+
 Before adding any real gold file, maintainers must document its source,
 annotation and verification process, participant-consent and IRB constraints,
 data license, and whether repository redistribution is permitted. Do not commit

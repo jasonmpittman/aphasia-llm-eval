@@ -51,6 +51,10 @@ def test_plain_and_numbered_token_renderers():
         {"transcript": "Birds sing.", "stimulus": "Synthetic", "duration_seconds": 2},
     )
     assert "Birds sing." in prompt.user
+    assert "Stimulus or topic:\nSynthetic" in prompt.user
+    assert 'Never count "and" as a CIU.' in prompt.user
+    assert "Split contractions into their constituent words" in prompt.user
+    assert "replace with your lab's CIU rules" not in prompt.user
     assert '{"total_words": <integer>, "ciu_count": <integer>}' in prompt.user
 
     pos = _read_task("pos_breakdown")
@@ -61,6 +65,22 @@ def test_plain_and_numbered_token_renderers():
     assert "1\tBlue\n2\tsky" in prompt.user
     assert "ADJ, ADP, ADV" in prompt.user
     assert '{"tags": [{"i": 1, "pos": "DET"}' in prompt.user
+
+
+def test_clinically_reviewed_cat_rescue_gold_matches_annotation():
+    result = load_task_file(
+        ROOT / "tasks/ciu_scoring.yaml",
+        gold_dir=ROOT / "gold_tasks",
+        schema_path=SCHEMA_PATH,
+    )
+
+    assert result.enabled, result.errors
+    assert result.task is not None and result.task.gold is not None
+    assert result.task.config["version"] == "0.2.0"
+    assert len(result.task.gold.items) == 1
+    item = result.task.gold.items[0]
+    assert item.item_id == "cat_rescue_001"
+    assert item.gold == {"total_words": 65, "ciu_count": 57}
 
 
 @pytest.mark.parametrize(

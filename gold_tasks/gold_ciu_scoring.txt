@@ -1,0 +1,16 @@
+# Cat Rescue CIU reference data.
+# Research evaluation only; not a clinical tool.
+# See annotations/cat_rescue_001.md for the supplied analysis and provenance checklist.
+=== item: cat_rescue_001 ===
+[input]
+stimulus: Cat Rescue
+[input.transcript]
+PAR: um the little girl wants her cat that climbed up in a tree
+PAR: and so the man got up the tree to retrieve the cat
+PAR: um and the ladder fell out behind him
+PAR: and the dog is barking at all the excitement
+PAR: and the firemen are coming to rescue, uh, I assume the cat and the man
+PAR: and uh there’s a bird on another branch that’s singing.
+[gold]
+total_words: 65
+ciu_count: 57

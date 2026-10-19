@@ -28,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from aphasia_eval.db import Aggregate, Result, Run, RunModel, RunTask
+from aphasia_eval.services.ablation import result_experiment
 
 CSV_ITEM_COLUMNS = (
     "result_id",
@@ -35,6 +36,8 @@ CSV_ITEM_COLUMNS = (
     "model_id",
     "task_id",
     "item_id",
+    "condition_id",
+    "condition_json",
     "repetition",
     "input_json",
     "gold_json",
@@ -57,7 +60,7 @@ CSV_ITEM_COLUMNS = (
     "error_message",
     "created_at",
 )
-CSV_AGGREGATE_ID_COLUMNS = ("run_id", "model_id", "task_id")
+CSV_AGGREGATE_ID_COLUMNS = ("run_id", "model_id", "task_id", "condition_id")
 FORMULA_PREFIXES = ("=", "+", "-", "@")
 PDF_BLUE = colors.HexColor("#0F766E")
 PDF_CORAL = colors.HexColor("#D7654D")
@@ -79,7 +82,7 @@ class RunExportData:
         """Return the complete versioned JSON export document."""
 
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "exported_at": _isoformat(datetime.now(UTC)),
             "run": self.run,
             "models": self.models,
@@ -121,7 +124,13 @@ def load_run_export(session: Session, run_id: str) -> RunExportData | None:
         session.scalars(
             select(Aggregate)
             .where(Aggregate.run_id == run_id)
-            .order_by(Aggregate.model_id, Aggregate.task_id, Aggregate.stat_name, Aggregate.field)
+            .order_by(
+                Aggregate.model_id,
+                Aggregate.task_id,
+                Aggregate.condition_id,
+                Aggregate.stat_name,
+                Aggregate.field,
+            )
         )
     )
     results = list(
@@ -163,6 +172,7 @@ def load_run_export(session: Session, run_id: str) -> RunExportData | None:
                 "run_id": aggregate.run_id,
                 "model_id": aggregate.model_id,
                 "task_id": aggregate.task_id,
+                "condition_id": aggregate.condition_id,
                 "stat_name": aggregate.stat_name,
                 "field": aggregate.field,
                 "value": aggregate.value,
@@ -204,13 +214,16 @@ def export_filename(data: RunExportData, extension: str) -> str:
 
 
 def _serialize_result(result: Result) -> dict[str, Any]:
+    experiment = result_experiment(result.comparison_json, result.repetition)
     return {
         "result_id": result.id,
         "run_id": result.run_id,
         "model_id": result.model_id,
         "task_id": result.task_id,
         "item_id": result.item_id,
-        "repetition": result.repetition,
+        "condition_id": experiment["condition_id"],
+        "condition_json": experiment,
+        "repetition": experiment["repetition"],
         "input_json": result.input_json,
         "gold_json": result.gold_json,
         "prompt_rendered": result.prompt_rendered,
@@ -246,15 +259,20 @@ def _csv_zip(data: RunExportData) -> bytes:
 def _wide_aggregate_rows(data: RunExportData) -> tuple[tuple[str, ...], list[dict[str, Any]]]:
     metric_names = sorted({_aggregate_column(entry) for entry in data.aggregates})
     columns = (*CSV_AGGREGATE_ID_COLUMNS, *metric_names, *(f"{name}__n" for name in metric_names))
-    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
     for aggregate in data.aggregates:
-        key = (aggregate["model_id"], aggregate["task_id"])
+        key = (
+            aggregate["model_id"],
+            aggregate["task_id"],
+            aggregate["condition_id"],
+        )
         row = grouped.setdefault(
             key,
             {
                 "run_id": aggregate["run_id"],
                 "model_id": aggregate["model_id"],
                 "task_id": aggregate["task_id"],
+                "condition_id": aggregate["condition_id"],
             },
         )
         metric = _aggregate_column(aggregate)
@@ -292,6 +310,8 @@ def _xlsx(data: RunExportData) -> bytes:
     _write_summary_sheet(summary, data)
     _write_efficiency_sheet(workbook.create_sheet("Efficiency"), data)
     _write_items_sheet(workbook.create_sheet("Items"), data)
+    if isinstance(data.run["settings"].get("ablation"), dict):
+        _write_ablation_sheet(workbook.create_sheet("Ablation"), data)
     _write_run_info_sheet(workbook.create_sheet("Run Info"), data)
     for sheet in workbook.worksheets:
         _finish_sheet(sheet)
@@ -307,12 +327,13 @@ def _write_summary_sheet(sheet, data: RunExportData) -> None:
     sheet.append(["Clinical-use caveat", "Research evaluation only; not a clinical tool."])
     sheet.append(["Cost caveat", "All cost values are estimated."])
     sheet.append([])
-    sheet.append(["Model", "Task", "Statistic", "Field", "Value", "N"])
+    sheet.append(["Model", "Task", "Condition", "Statistic", "Field", "Value", "N"])
     for aggregate in data.aggregates:
         sheet.append(
             [
                 _excel_value(aggregate["model_id"]),
                 _excel_value(aggregate["task_id"]),
+                _excel_value(aggregate["condition_id"]),
                 _excel_value(aggregate["stat_name"]),
                 _excel_value(aggregate["field"]),
                 aggregate["value"],
@@ -320,13 +341,14 @@ def _write_summary_sheet(sheet, data: RunExportData) -> None:
             ]
         )
     sheet.freeze_panes = "A8"
-    sheet.auto_filter.ref = f"A7:F{max(7, sheet.max_row)}"
+    sheet.auto_filter.ref = f"A7:G{max(7, sheet.max_row)}"
 
 
 def _write_efficiency_sheet(sheet, data: RunExportData) -> None:
     columns = (
         "Model",
         "Task",
+        "Condition",
         "Input tokens",
         "Output tokens",
         "Reasoning tokens",
@@ -338,34 +360,57 @@ def _write_efficiency_sheet(sheet, data: RunExportData) -> None:
         "Any token counts estimated",
     )
     sheet.append(columns)
-    aggregate_lookup = _aggregate_lookup(data)
+    aggregate_lookup = _condition_aggregate_lookup(data)
     for model in data.models:
         model_id = model["model_id"]
         for task in data.tasks:
             task_id = task["task_id"]
-            estimated = any(
-                item["model_id"] == model_id
-                and item["task_id"] == task_id
-                and item["tokens_estimated"]
-                for item in data.items
+            condition_ids = sorted(
+                {
+                    entry["condition_id"]
+                    for entry in data.aggregates
+                    if entry["model_id"] == model_id and entry["task_id"] == task_id
+                },
+                key=lambda value: value != "baseline",
             )
-            sheet.append(
-                [
-                    _excel_value(model_id),
-                    _excel_value(task_id),
-                    aggregate_lookup.get((model_id, task_id, "input_tokens", None)),
-                    aggregate_lookup.get((model_id, task_id, "output_tokens", None)),
-                    aggregate_lookup.get((model_id, task_id, "reasoning_tokens", None)),
-                    aggregate_lookup.get((model_id, task_id, "estimated_cost_usd", None)),
-                    model["pricing_source"] or "unknown",
-                    aggregate_lookup.get((model_id, task_id, "total_elapsed_ms", None)),
-                    aggregate_lookup.get((model_id, task_id, "mean_latency_ms", None)),
-                    aggregate_lookup.get((model_id, task_id, "p95_latency_ms", None)),
-                    estimated,
-                ]
-            )
+            for condition_id in condition_ids:
+                estimated = any(
+                    item["model_id"] == model_id
+                    and item["task_id"] == task_id
+                    and item["condition_id"] == condition_id
+                    and item["tokens_estimated"]
+                    for item in data.items
+                )
+                key = (model_id, task_id, condition_id)
+                sheet.append(
+                    [
+                        _excel_value(model_id),
+                        _excel_value(task_id),
+                        _excel_value(condition_id),
+                        aggregate_lookup.get((*key, "input_tokens", None)),
+                        aggregate_lookup.get((*key, "output_tokens", None)),
+                        aggregate_lookup.get((*key, "reasoning_tokens", None)),
+                        aggregate_lookup.get((*key, "estimated_cost_usd", None)),
+                        model["pricing_source"] or "unknown",
+                        aggregate_lookup.get((*key, "total_elapsed_ms", None)),
+                        aggregate_lookup.get((*key, "mean_latency_ms", None)),
+                        aggregate_lookup.get((*key, "p95_latency_ms", None)),
+                        estimated,
+                    ]
+                )
     sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = f"A1:K{max(1, sheet.max_row)}"
+    sheet.auto_filter.ref = f"A1:L{max(1, sheet.max_row)}"
+
+
+def _write_ablation_sheet(sheet, data: RunExportData) -> None:
+    """Write a condition-oriented table suitable for independent analysis."""
+
+    columns, rows = _wide_aggregate_rows(data)
+    sheet.append([_humanize(column) for column in columns])
+    for row in rows:
+        sheet.append([_excel_value(row.get(column)) for column in columns])
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:{get_column_letter(len(columns))}{max(1, sheet.max_row)}"
 
 
 def _write_items_sheet(sheet, data: RunExportData) -> None:
@@ -373,7 +418,8 @@ def _write_items_sheet(sheet, data: RunExportData) -> None:
     for item in data.items:
         sheet.append([_excel_value(item.get(column)) for column in CSV_ITEM_COLUMNS])
     sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = f"A1:Z{max(1, sheet.max_row)}"
+    last_column = get_column_letter(len(CSV_ITEM_COLUMNS))
+    sheet.auto_filter.ref = f"A1:{last_column}{max(1, sheet.max_row)}"
 
 
 def _write_run_info_sheet(sheet, data: RunExportData) -> None:
@@ -474,12 +520,13 @@ def _pdf(data: RunExportData) -> bytes:
     for task in data.tasks:
         task_id = task["task_id"]
         story.append(Paragraph(f"Task summary: {_safe_text(task_id)}", styles["Heading2"]))
-        task_rows = [["Model", "Statistic", "Field", "Value", "N"]]
+        task_rows = [["Model", "Condition", "Statistic", "Field", "Value", "N"]]
         for aggregate in data.aggregates:
             if aggregate["task_id"] == task_id:
                 task_rows.append(
                     [
                         _safe_text(aggregate["model_id"]),
+                        _safe_text(aggregate["condition_id"]),
                         _safe_text(aggregate["stat_name"]),
                         _safe_text(aggregate["field"] or "—"),
                         _format_number(aggregate["value"]),
@@ -489,7 +536,7 @@ def _pdf(data: RunExportData) -> bytes:
         story.append(
             _pdf_table(
                 task_rows,
-                [2.1 * inch, 2.1 * inch, 1.5 * inch, 1.2 * inch, 0.6 * inch],
+                [1.6 * inch, 1.25 * inch, 1.7 * inch, 1.25 * inch, 1 * inch, 0.5 * inch],
             )
         )
         chart = _headline_chart(data, task_id, aggregate_lookup)
@@ -718,6 +765,22 @@ def _aggregate_lookup(
 ) -> dict[tuple[str, str, str, str | None], float | None]:
     return {
         (entry["model_id"], entry["task_id"], entry["stat_name"], entry["field"]): entry["value"]
+        for entry in data.aggregates
+        if entry["condition_id"] == "baseline"
+    }
+
+
+def _condition_aggregate_lookup(
+    data: RunExportData,
+) -> dict[tuple[str, str, str, str, str | None], float | None]:
+    return {
+        (
+            entry["model_id"],
+            entry["task_id"],
+            entry["condition_id"],
+            entry["stat_name"],
+            entry["field"],
+        ): entry["value"]
         for entry in data.aggregates
     }
 

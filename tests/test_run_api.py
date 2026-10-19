@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -180,6 +181,8 @@ def test_full_run_with_success_error_and_parse_failure(client, fake_litellm):
     assert errors[0]["comparison"]["diagnostics"] == {
         "finish_reason": "length",
         "content_state": "null",
+        "error_code": "http_error",
+        "optional_parameters_removed": False,
     }
 
     failures = client.get(
@@ -288,6 +291,17 @@ def test_full_run_with_success_error_and_parse_failure(client, fake_litellm):
             {
                 "models": ["good-model"],
                 "tasks": ["ciu_scoring"],
+                "settings": {
+                    "max_tokens": 256,
+                    "ablation": {"parameter": "max_tokens", "values": [256]},
+                },
+            },
+            "invalid_request",
+        ),
+        (
+            {
+                "models": ["good-model"],
+                "tasks": ["ciu_scoring"],
                 "label": 42,
             },
             "invalid_request",
@@ -328,6 +342,73 @@ def test_request_cap_and_query_validation(app, client):
     rename_missing = client.patch("/api/runs/missing", json={"label": None}, headers=HEADERS)
     assert rename_missing.status_code == 404
     assert client.delete("/api/runs/missing", json={}, headers=HEADERS).status_code == 404
+
+
+def test_max_token_ablation_expands_conditions_and_selects_best(client, fake_litellm):
+    original_completion = fake_litellm.chat_completion
+
+    def condition_sensitive_completion(**kwargs):
+        completion = original_completion(**kwargs)
+        if kwargs["max_tokens"] == 128:
+            return replace(
+                completion,
+                raw_text=None,
+                diagnostics={"finish_reason": "length", "content_state": "null"},
+                error=LiteLLMError("truncated", "Synthetic output-token exhaustion."),
+            )
+        return completion
+
+    fake_litellm.chat_completion = condition_sensitive_completion
+    response = _create_run(
+        client,
+        models=["good-model"],
+        settings={
+            "max_tokens": 512,
+            "repetitions": 2,
+            "max_items_per_task": 1,
+            "ablation": {"parameter": "max_tokens", "values": [128, 256]},
+        },
+    )
+    assert response.status_code == 202
+    run_id = response.get_json()["run_id"]
+    assert [call[3] for call in fake_litellm.calls] == [512, 512, 128, 128, 256, 256]
+
+    detail = client.get(f"/api/runs/{run_id}", headers=HEADERS).get_json()
+    assert detail["run"]["settings"]["total_requests"] == 6
+    assert detail["ablation"]["enabled"] is True
+    assert [condition["condition_id"] for condition in detail["ablation"]["conditions"]] == [
+        "baseline",
+        "max_tokens_128",
+        "max_tokens_256",
+    ]
+    assert len(detail["ablation"]["summaries"]) == 3
+    assert detail["ablation"]["best_conditions"] == [
+        {
+            "model_id": "good-model",
+            "task_id": "ciu_scoring",
+            "condition_id": "baseline",
+        }
+    ]
+    assert {entry["condition_id"] for entry in detail["aggregates"]} == {
+        "baseline",
+        "max_tokens_128",
+        "max_tokens_256",
+    }
+    truncated = next(
+        row for row in detail["ablation"]["summaries"] if row["condition_id"] == "max_tokens_128"
+    )
+    assert truncated["comparable_response_rate"] == 0
+    assert truncated["truncated_responses"] == 2
+
+    items = client.get(f"/api/runs/{run_id}/items", headers=HEADERS).get_json()["items"]
+    assert len(items) == 6
+    assert {item["repetition"] for item in items} == {1, 2}
+    assert {item["condition_id"] for item in items} == {
+        "baseline",
+        "max_tokens_128",
+        "max_tokens_256",
+    }
+    assert all(item["condition"]["requested_settings"]["max_tokens"] for item in items)
 
 
 @pytest.mark.parametrize(

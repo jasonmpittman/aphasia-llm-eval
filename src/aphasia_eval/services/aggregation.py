@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import delete, select
 
 from aphasia_eval.db import Aggregate, Database, Result, RunModel
+from aphasia_eval.services.ablation import result_experiment
 from aphasia_eval.services.task_loader import TaskDefinition
 
 
@@ -41,11 +42,14 @@ def recompute_run_aggregates(
             )
         )
         session.execute(delete(Aggregate).where(Aggregate.run_id == run_id))
-        grouped: dict[tuple[str, str], list[Result]] = defaultdict(list)
+        grouped: dict[tuple[str, str, str], list[Result]] = defaultdict(list)
         for result in results:
-            grouped[(result.model_id, result.task_id)].append(result)
+            condition_id = result_experiment(result.comparison_json, result.repetition)[
+                "condition_id"
+            ]
+            grouped[(result.model_id, result.task_id, condition_id)].append(result)
 
-        for (model_id, task_id), group in grouped.items():
+        for (model_id, task_id, condition_id), group in grouped.items():
             task = tasks[task_id]
             for aggregate in _aggregate_group(group, task.config):
                 session.add(
@@ -53,6 +57,7 @@ def recompute_run_aggregates(
                         run_id=run_id,
                         model_id=model_id,
                         task_id=task_id,
+                        condition_id=condition_id,
                         stat_name=aggregate.name,
                         field=aggregate.field,
                         value=aggregate.value,
@@ -90,6 +95,28 @@ def _aggregate_group(results: Sequence[Result], task: Mapping[str, Any]) -> list
         AggregateValue(
             "item_match_rate",
             _safe_divide(sum(result.matched is True for result in active), len(active)),
+            len(active),
+        ),
+        AggregateValue(
+            "comparable_response_rate",
+            _safe_divide(len(comparable), len(active)),
+            len(active),
+        ),
+        AggregateValue(
+            "truncated_responses",
+            float(sum(_diagnostic_value(result, "error_code") == "truncated" for result in active)),
+            len(active),
+        ),
+        AggregateValue(
+            "optional_parameters_removed",
+            float(
+                sum(
+                    result_experiment(result.comparison_json, result.repetition)[
+                        "optional_parameters_removed"
+                    ]
+                    for result in active
+                )
+            ),
             len(active),
         ),
     ]
@@ -152,6 +179,14 @@ def _efficiency_values(results: Sequence[Result]) -> list[AggregateValue]:
     ]
 
 
+def _diagnostic_value(result: Result, name: str) -> Any:
+    comparison = result.comparison_json
+    if not isinstance(comparison, Mapping):
+        return None
+    diagnostics = comparison.get("diagnostics")
+    return diagnostics.get(name) if isinstance(diagnostics, Mapping) else None
+
+
 def _numeric_values(results: Sequence[Result], task: Mapping[str, Any]) -> list[AggregateValue]:
     values: list[AggregateValue] = []
     for field in task["comparison"]["fields"]:
@@ -207,7 +242,8 @@ def _token_values(results: Sequence[Result], task: Mapping[str, Any]) -> list[Ag
 def _headline_by_repetition(results: Sequence[Result], task: Mapping[str, Any]) -> list[float]:
     grouped: dict[int, list[Result]] = defaultdict(list)
     for result in results:
-        grouped[result.repetition].append(result)
+        repetition = result_experiment(result.comparison_json, result.repetition)["repetition"]
+        grouped[int(repetition)].append(result)
     headline = task["headline"]
     values: list[float] = []
     for repetition_results in grouped.values():

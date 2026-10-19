@@ -48,6 +48,7 @@ def test_frontend_pages_render_without_inline_scripts(client):
     assert b'id="model-list"' in response.data
     assert b'id="task-list"' in response.data
     assert b'id="confirmation-modal"' in response.data
+    assert b'id="ablation-enabled"' in response.data
     assert b'data-bs-theme="dark"' in response.data
     assert b'id="app-sidebar"' in response.data
     assert b'id="sidebar-toggle"' in response.data
@@ -61,6 +62,8 @@ def test_frontend_pages_render_without_inline_scripts(client):
     assert b'id="overview-tab"' in run_page.data
     assert b'id="efficiency-tab"' in run_page.data
     assert b'id="task-detail-tab"' in run_page.data
+    assert b'id="ablation-tab"' in run_page.data
+    assert b'id="result-mode-select"' in run_page.data
     assert b'id="items-tab"' in run_page.data
     assert b'id="run-info-tab"' in run_page.data
     assert b"CSV package" in run_page.data

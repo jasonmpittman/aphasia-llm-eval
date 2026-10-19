@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from aphasia_eval.comparison import compare_answers
 from aphasia_eval.db import Database, Result, Run, RunModel, RunTask
+from aphasia_eval.services.ablation import ExperimentCondition, experiment_conditions
 from aphasia_eval.services.aggregation import recompute_run_aggregates
 from aphasia_eval.services.gold_loader import GoldItem
 from aphasia_eval.services.litellm_client import LiteLLMClient
@@ -95,6 +96,8 @@ class Job:
     task: TaskDefinition
     item: GoldItem
     repetition: int
+    storage_repetition: int
+    condition: ExperimentCondition
     settings: Mapping[str, Any]
 
 
@@ -142,6 +145,18 @@ class RunOrchestrator:
         run_id = str(uuid.uuid4())
         created_at = datetime.now(UTC)
         persisted_settings = dict(settings)
+        conditions = experiment_conditions(settings)
+        ablation = persisted_settings.get("ablation")
+        if isinstance(ablation, Mapping):
+            persisted_settings["ablation"] = {
+                **dict(ablation),
+                "conditions": [condition.as_dict() for condition in conditions],
+                "task_headlines": {task.task_id: dict(task.config["headline"]) for task in tasks},
+                "selection_rule": (
+                    "Highest comparable-response rate, then best task headline, "
+                    "then lower estimated cost and latency."
+                ),
+            }
         persisted_settings.update(
             {
                 "max_concurrency_total": self.max_concurrency_total,
@@ -276,6 +291,7 @@ class RunOrchestrator:
                         "task_id": job.task.task_id,
                         "item_id": job.item.item_id,
                         "repetition": job.repetition,
+                        "condition_id": job.condition.condition_id,
                         "status": status,
                         **totals,
                     }
@@ -340,7 +356,9 @@ class RunOrchestrator:
             "attempts": completion.attempts,
         }
         diagnostics = dict(completion.diagnostics)
+        diagnostics["optional_parameters_removed"] = completion.optional_parameters_removed
         if completion.error is not None:
+            diagnostics["error_code"] = completion.error.code
             self._persist_result(
                 job,
                 status="error",
@@ -412,7 +430,7 @@ class RunOrchestrator:
                     Result.model_id == job.model_id,
                     Result.task_id == job.task.task_id,
                     Result.item_id == job.item.item_id,
-                    Result.repetition == job.repetition,
+                    Result.repetition == job.storage_repetition,
                 )
             )
             if existing is None:
@@ -458,12 +476,26 @@ def _result_record(job: Job, *, status: str, **values: Any) -> Result:
         "error_message": None,
     }
     defaults.update(values)
+    comparison = defaults.get("comparison_json")
+    comparison = dict(comparison) if isinstance(comparison, Mapping) else {}
+    comparison["experiment"] = {
+        **job.condition.as_dict(),
+        "repetition": job.repetition,
+        "requested_settings": {
+            "temperature": job.settings["temperature"],
+            "max_tokens": job.settings["max_tokens"],
+        },
+        "optional_parameters_removed": bool(
+            comparison.get("diagnostics", {}).get("optional_parameters_removed", False)
+        ),
+    }
+    defaults["comparison_json"] = comparison
     return Result(
         run_id=job.run_id,
         model_id=job.model_id,
         task_id=job.task.task_id,
         item_id=job.item.item_id,
-        repetition=job.repetition,
+        repetition=job.storage_repetition,
         input_json=job.item.inputs,
         gold_json=job.item.gold,
         status=status,
@@ -477,12 +509,13 @@ def _request_count(
 ) -> int:
     item_limit = settings.get("max_items_per_task")
     repetitions = int(settings["repetitions"])
+    condition_count = len(experiment_conditions(settings))
     items = sum(
         min(len(task.gold.items), item_limit) if item_limit is not None else len(task.gold.items)
         for task in tasks
         if task.gold is not None
     )
-    return len(models) * items * repetitions
+    return len(models) * items * repetitions * condition_count
 
 
 def _expand_jobs(
@@ -493,22 +526,27 @@ def _expand_jobs(
 ) -> tuple[Job, ...]:
     jobs: list[Job] = []
     item_limit = settings.get("max_items_per_task")
-    for task in tasks:
-        assert task.gold is not None
-        items = task.gold.items[:item_limit] if item_limit is not None else task.gold.items
-        for repetition in range(1, int(settings["repetitions"]) + 1):
-            for item in items:
-                for model in models:
-                    jobs.append(
-                        Job(
-                            run_id=run_id,
-                            model_id=model,
-                            task=task,
-                            item=item,
-                            repetition=repetition,
-                            settings=settings,
+    repetitions = int(settings["repetitions"])
+    for condition_index, condition in enumerate(experiment_conditions(settings)):
+        for task in tasks:
+            assert task.gold is not None
+            items = task.gold.items[:item_limit] if item_limit is not None else task.gold.items
+            for repetition in range(1, repetitions + 1):
+                storage_repetition = condition_index * repetitions + repetition
+                for item in items:
+                    for model in models:
+                        jobs.append(
+                            Job(
+                                run_id=run_id,
+                                model_id=model,
+                                task=task,
+                                item=item,
+                                repetition=repetition,
+                                storage_repetition=storage_repetition,
+                                condition=condition,
+                                settings=condition.settings,
+                            )
                         )
-                    )
     return tuple(jobs)
 
 

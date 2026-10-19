@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, event, update
+from sqlalchemy import Engine, create_engine, event, inspect, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -36,9 +36,25 @@ class Database:
         )
 
     def create_all(self) -> None:
-        """Create the v0.1 schema when the database is first opened."""
+        """Create the schema and apply safe additive compatibility changes."""
 
         Base.metadata.create_all(self.engine)
+        self._ensure_additive_columns()
+
+    def _ensure_additive_columns(self) -> None:
+        """Keep pre-M7 SQLite databases readable without rebuilding tables."""
+
+        if self.engine.dialect.name != "sqlite":
+            return
+        columns = {column["name"] for column in inspect(self.engine).get_columns("aggregates")}
+        if "condition_id" not in columns:
+            with self.engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE aggregates ADD COLUMN condition_id "
+                        "VARCHAR(100) NOT NULL DEFAULT 'baseline'"
+                    )
+                )
 
     @contextmanager
     def session(self) -> Iterator[Session]:

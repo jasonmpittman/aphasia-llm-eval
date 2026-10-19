@@ -19,6 +19,21 @@ For each model, task, item, and repetition, the application:
 A parse failure is retained and counted but excluded from difference
 statistics. Model output is never sent to a second model.
 
+## Ablation conditions
+
+An ablation run repeats the same model/task/item matrix under several declared
+parameter conditions. M7 varies only `max_tokens`; temperature and prompt
+hashes remain fixed. Aggregates are partitioned by `condition_id`, and failures
+remain in the comparable-response denominator. The stored experiment metadata
+contains the requested settings and whether the gateway rejected and caused
+the client to remove optional parameters.
+
+The best-observed condition is selected independently for each model/task pair
+by comparable-response rate, then the task's declared headline direction,
+then lower estimated cost and latency. This is an exploratory convenience, not
+held-out model selection. Use separate development and evaluation items before
+making comparative performance claims.
+
 ## Derived values
 
 Task YAML may use only registered functions:

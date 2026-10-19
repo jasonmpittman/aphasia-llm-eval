@@ -45,7 +45,7 @@ def test_json_export_contains_complete_versioned_run_without_secret(client):
     assert f"aphasia-eval-{run_id}.json" in response.headers["Content-Disposition"]
     assert b"unit-test-placeholder" not in response.data
     document = json.loads(response.data)
-    assert document["schema_version"] == 1
+    assert document["schema_version"] == 2
     assert document["run"]["id"] == run_id
     assert document["run"]["label"] == "M5 synthetic export"
     assert document["run"]["status"] == "completed"
@@ -130,6 +130,55 @@ def test_export_validation_and_missing_run(client):
     assert unsupported.get_json()["error"]["code"] == "invalid_format"
     assert missing_run.status_code == 404
     assert missing_run.get_json()["error"]["code"] == "not_found"
+
+
+def test_ablation_exports_include_every_condition(client):
+    response = client.post(
+        "/api/runs",
+        json={
+            "models": ["good-model"],
+            "tasks": ["ciu_scoring"],
+            "settings": {
+                "max_tokens": 512,
+                "repetitions": 1,
+                "max_items_per_task": 1,
+                "ablation": {"parameter": "max_tokens", "values": [128]},
+            },
+        },
+        headers=HEADERS,
+    )
+    run_id = response.get_json()["run_id"]
+
+    json_response = client.get(f"/api/runs/{run_id}/export?format=json", headers=HEADERS)
+    document = json.loads(json_response.data)
+    assert {item["condition_id"] for item in document["items"]} == {
+        "baseline",
+        "max_tokens_128",
+    }
+    assert {row["condition_id"] for row in document["aggregates"]} == {
+        "baseline",
+        "max_tokens_128",
+    }
+
+    csv_response = client.get(f"/api/runs/{run_id}/export?format=csv", headers=HEADERS)
+    with zipfile.ZipFile(io.BytesIO(csv_response.data)) as archive:
+        items = list(csv.DictReader(io.TextIOWrapper(archive.open("items.csv"), "utf-8")))
+        aggregates = list(csv.DictReader(io.TextIOWrapper(archive.open("aggregates.csv"), "utf-8")))
+    assert {row["condition_id"] for row in items} == {"baseline", "max_tokens_128"}
+    assert {row["condition_id"] for row in aggregates} == {
+        "baseline",
+        "max_tokens_128",
+    }
+
+    xlsx_response = client.get(f"/api/runs/{run_id}/export?format=xlsx", headers=HEADERS)
+    workbook = load_workbook(io.BytesIO(xlsx_response.data), read_only=True, data_only=True)
+    assert "Ablation" in workbook.sheetnames
+    assert workbook["Ablation"].max_row == 3
+    workbook.close()
+
+    pdf_response = client.get(f"/api/runs/{run_id}/export?format=pdf", headers=HEADERS)
+    assert pdf_response.status_code == 200
+    assert pdf_response.data.startswith(b"%PDF-")
 
 
 def test_tabular_exports_neutralize_spreadsheet_formulas(app, client):

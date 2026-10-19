@@ -18,6 +18,7 @@ from aphasia_eval.extensions import (
     get_orchestrator,
     get_pricing_service,
 )
+from aphasia_eval.services.ablation import normalize_ablation, result_experiment
 from aphasia_eval.services.model_capabilities import (
     load_capability_overrides,
     resolve_text_capability,
@@ -290,7 +291,9 @@ def _normalize_settings(value: Any):
     if not isinstance(value, Mapping):
         return None, json_error("invalid_request", "settings must be an object.", 400)
     error = _reject_unknown_keys(
-        value, {"temperature", "max_tokens", "repetitions", "max_items_per_task"}, "settings"
+        value,
+        {"temperature", "max_tokens", "repetitions", "max_items_per_task", "ablation"},
+        "settings",
     )
     if error:
         return None, error
@@ -316,12 +319,20 @@ def _normalize_settings(value: Any):
         return None, json_error(
             "invalid_request", "max_items_per_task must be null or a positive integer.", 400
         )
-    return {
+    ablation, ablation_error = normalize_ablation(
+        value.get("ablation"), baseline_max_tokens=max_tokens
+    )
+    if ablation_error:
+        return None, json_error("invalid_request", ablation_error + ".", 400)
+    normalized = {
         "temperature": float(temperature),
         "max_tokens": max_tokens,
         "repetitions": repetitions,
         "max_items_per_task": max_items,
-    }, None
+    }
+    if ablation is not None:
+        normalized["ablation"] = ablation
+    return normalized, None
 
 
 def _string_list(value: Any, name: str):
@@ -427,6 +438,7 @@ def _run_detail(session, run: Run) -> dict[str, Any]:
             {
                 "model_id": aggregate.model_id,
                 "task_id": aggregate.task_id,
+                "condition_id": aggregate.condition_id,
                 "stat_name": aggregate.stat_name,
                 "field": aggregate.field,
                 "value": aggregate.value,
@@ -434,17 +446,21 @@ def _run_detail(session, run: Run) -> dict[str, Any]:
             }
             for aggregate in aggregates
         ],
+        "ablation": _ablation_detail(run.settings_json, aggregates),
     }
 
 
 def _serialize_result(result: Result) -> dict[str, Any]:
+    experiment = result_experiment(result.comparison_json, result.repetition)
     return {
         "id": result.id,
         "run_id": result.run_id,
         "model_id": result.model_id,
         "task_id": result.task_id,
         "item_id": result.item_id,
-        "repetition": result.repetition,
+        "repetition": experiment["repetition"],
+        "condition_id": experiment["condition_id"],
+        "condition": experiment,
         "input": result.input_json,
         "gold": result.gold_json,
         "prompt_rendered": result.prompt_rendered,
@@ -466,6 +482,122 @@ def _serialize_result(result: Result) -> dict[str, Any]:
         "error_message": result.error_message,
         "created_at": _isoformat(result.created_at),
     }
+
+
+def _ablation_detail(settings: Mapping[str, Any], aggregates: list[Aggregate]) -> dict[str, Any]:
+    ablation = settings.get("ablation")
+    if not isinstance(ablation, Mapping):
+        return {"enabled": False, "conditions": [], "summaries": [], "best_conditions": []}
+    aggregate_lookup = {
+        (
+            aggregate.model_id,
+            aggregate.task_id,
+            aggregate.condition_id,
+            aggregate.stat_name,
+            aggregate.field,
+        ): aggregate.value
+        for aggregate in aggregates
+    }
+    groups = sorted(
+        {
+            (aggregate.model_id, aggregate.task_id, aggregate.condition_id)
+            for aggregate in aggregates
+        }
+    )
+    conditions = ablation.get("conditions", [])
+    condition_lookup = {
+        condition["condition_id"]: condition
+        for condition in conditions
+        if isinstance(condition, Mapping) and "condition_id" in condition
+    }
+    task_headlines = ablation.get("task_headlines", {})
+    summaries: list[dict[str, Any]] = []
+    for model_id, task_id, condition_id in groups:
+        headline = task_headlines.get(task_id, {})
+        headline_field = headline.get("field") if isinstance(headline, Mapping) else None
+
+        def metric(
+            name: str,
+            field: str | None = None,
+            group: tuple[str, str, str] = (model_id, task_id, condition_id),
+        ):
+            return aggregate_lookup.get((*group, name, field))
+
+        condition = condition_lookup.get(condition_id, {})
+        token_agreement = metric("token_agreement")
+        if token_agreement is None:
+            token_agreement = metric("token_label_agreement")
+        summaries.append(
+            {
+                "model_id": model_id,
+                "task_id": task_id,
+                "condition_id": condition_id,
+                "label": condition.get("label", condition_id),
+                "parameter": condition.get("parameter"),
+                "value": condition.get("value"),
+                "is_baseline": bool(condition.get("is_baseline", False)),
+                "items_run": metric("items_run"),
+                "comparable_response_rate": metric("comparable_response_rate"),
+                "parse_failures": metric("parse_failures"),
+                "errors": metric("errors"),
+                "truncated_responses": metric("truncated_responses"),
+                "optional_parameters_removed": metric("optional_parameters_removed"),
+                "headline": metric("headline", headline_field),
+                "headline_stddev": metric("headline_stddev", headline_field),
+                "headline_field": headline_field,
+                "headline_better": headline.get("better", "lower"),
+                "token_agreement": token_agreement,
+                "estimated_cost_usd": metric("estimated_cost_usd"),
+                "mean_latency_ms": metric("mean_latency_ms"),
+            }
+        )
+    best_conditions = []
+    pairs = sorted({(row["model_id"], row["task_id"]) for row in summaries})
+    for model_id, task_id in pairs:
+        candidates = [
+            row for row in summaries if row["model_id"] == model_id and row["task_id"] == task_id
+        ]
+        best = min(candidates, key=_ablation_selection_key)
+        best_conditions.append(
+            {
+                "model_id": model_id,
+                "task_id": task_id,
+                "condition_id": best["condition_id"],
+            }
+        )
+    return {
+        "enabled": True,
+        "parameter": ablation.get("parameter"),
+        "baseline_value": ablation.get("baseline_value"),
+        "conditions": conditions,
+        "selection_rule": ablation.get("selection_rule"),
+        "summaries": summaries,
+        "best_conditions": best_conditions,
+        "same_dataset_warning": (
+            "Best observed conditions were selected on these same gold items and are exploratory."
+        ),
+    }
+
+
+def _ablation_selection_key(summary: Mapping[str, Any]) -> tuple[Any, ...]:
+    coverage = summary.get("comparable_response_rate")
+    coverage_key = -float(coverage) if coverage is not None else math.inf
+    headline = summary.get("headline")
+    if headline is None:
+        headline_key = math.inf
+    else:
+        headline_key = float(headline)
+        if summary.get("headline_better") == "higher":
+            headline_key = -headline_key
+    cost = summary.get("estimated_cost_usd")
+    latency = summary.get("mean_latency_ms")
+    return (
+        coverage_key,
+        headline_key,
+        float(cost) if cost is not None else math.inf,
+        float(latency) if latency is not None else math.inf,
+        0 if summary.get("is_baseline") else 1,
+    )
 
 
 def _positive_query_int(name: str, default: int, maximum: int | None = None) -> int | None:

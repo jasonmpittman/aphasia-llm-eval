@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import inspect, select
+from sqlalchemy import inspect, select, text
 
 from aphasia_eval.db import Database, Run
 
@@ -33,6 +33,9 @@ def test_database_creates_schema_and_interrupts_stale_runs(tmp_path):
         "results",
         "aggregates",
     }.issubset(inspect(database.engine).get_table_names())
+    assert "condition_id" in {
+        column["name"] for column in inspect(database.engine).get_columns("aggregates")
+    }
     with database.session() as session:
         session.add_all(
             [_run("queued", "queued"), _run("running", "running"), _run("done", "completed")]
@@ -55,3 +58,14 @@ def test_session_rolls_back_failed_transaction():
         raise RuntimeError("rollback")
     with database.session() as session:
         assert session.get(Run, "discarded") is None
+
+
+def test_database_adds_condition_column_to_pre_m7_sqlite_schema(tmp_path):
+    database = Database(f"sqlite:///{tmp_path / 'legacy.db'}")
+    with database.engine.begin() as connection:
+        connection.execute(text("CREATE TABLE aggregates (id INTEGER PRIMARY KEY)"))
+
+    database.create_all()
+
+    columns = {column["name"] for column in inspect(database.engine).get_columns("aggregates")}
+    assert columns == {"id", "condition_id"}

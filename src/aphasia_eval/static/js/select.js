@@ -103,12 +103,18 @@
 
   function settings() {
     const rawLimit = document.getElementById("item-limit").value.trim();
-    return {
+    const maxTokens = Number(document.getElementById("max-tokens").value);
+    const controls = {
       temperature: Number(document.getElementById("temperature").value),
-      max_tokens: Number(document.getElementById("max-tokens").value),
+      max_tokens: maxTokens,
       repetitions: Number(document.getElementById("repetitions").value),
       max_items_per_task: rawLimit ? Number(rawLimit) : null,
     };
+    if (document.getElementById("ablation-enabled").checked) {
+      const values = document.getElementById("ablation-values").value.split(",").filter((value) => value.trim()).map((value) => Number(value.trim()));
+      controls.ablation = {parameter: "max_tokens", values};
+    }
+    return controls;
   }
 
   function selectionMetrics() {
@@ -117,6 +123,15 @@
     const selectedTasks = state.tasks.filter((task) => taskIds.includes(task.task_id));
     const selectedModels = state.models.filter((model) => modelIds.includes(model.id));
     const controls = settings();
+    const conditionValues = controls.ablation
+      ? [...new Set([controls.max_tokens, ...controls.ablation.values])]
+      : [controls.max_tokens];
+    const conditionsValid = !controls.ablation || (
+      controls.ablation.values.length > 0
+      && conditionValues.length >= 2
+      && conditionValues.length <= 8
+      && conditionValues.every((value) => Number.isInteger(value) && value > 0)
+    );
     const items = selectedTasks.reduce((total, task) => {
       const count = controls.max_items_per_task === null ? task.item_count : Math.min(task.item_count, controls.max_items_per_task);
       return total + count;
@@ -127,33 +142,43 @@
       selectedModels,
       controls,
       items,
-      requests: modelIds.length * items * controls.repetitions,
+      conditions: conditionValues.length,
+      conditionsValid,
+      requests: conditionsValid ? modelIds.length * items * controls.repetitions * conditionValues.length : Number.NaN,
     };
   }
 
   function roughCost(metrics) {
-    if (!metrics.selectedModels.length || !metrics.items) return null;
-    const jobsPerModel = metrics.items * metrics.controls.repetitions;
+    if (!metrics.selectedModels.length || !metrics.items || !metrics.conditionsValid) return null;
+    const values = metrics.controls.ablation
+      ? [...new Set([metrics.controls.max_tokens, ...metrics.controls.ablation.values])]
+      : [metrics.controls.max_tokens];
+    const jobsPerCondition = metrics.items * metrics.controls.repetitions;
     let lower = 0;
     let upper = 0;
     let priced = 0;
     metrics.selectedModels.forEach((model) => {
       if (model.input_usd_per_1m_tokens === null || model.output_usd_per_1m_tokens === null) return;
       priced += 1;
-      lower += jobsPerModel * 500 * model.input_usd_per_1m_tokens / 1_000_000;
-      upper += jobsPerModel * (500 * model.input_usd_per_1m_tokens + metrics.controls.max_tokens * model.output_usd_per_1m_tokens) / 1_000_000;
+      values.forEach((maxTokens) => {
+        lower += jobsPerCondition * 500 * model.input_usd_per_1m_tokens / 1_000_000;
+        upper += jobsPerCondition * (500 * model.input_usd_per_1m_tokens + maxTokens * model.output_usd_per_1m_tokens) / 1_000_000;
+      });
     });
     return priced ? {lower, upper, priced, total: metrics.selectedModels.length} : null;
   }
 
   function updateSummary() {
     const metrics = selectionMetrics();
+    document.getElementById("ablation-values").setCustomValidity(metrics.conditionsValid ? "" : "Enter positive integers for 2–8 distinct conditions including the baseline.");
     const selectableCount = state.models.filter((model) => model.selectable).length;
     document.getElementById("model-count").textContent = `${metrics.modelIds.length} of ${selectableCount} selectable models selected`;
     document.getElementById("task-count").textContent = `${metrics.taskIds.length} of ${state.tasks.filter((task) => task.enabled).length} available selected`;
     const equation = document.getElementById("run-equation");
-    if (metrics.modelIds.length && metrics.taskIds.length && Number.isFinite(metrics.requests)) {
-      equation.textContent = `${metrics.modelIds.length} model${metrics.modelIds.length === 1 ? "" : "s"} across ${metrics.taskIds.length} task${metrics.taskIds.length === 1 ? "" : "s"} · ${metrics.items} total items · ${metrics.controls.repetitions} repetition${metrics.controls.repetitions === 1 ? "" : "s"} = ${metrics.requests} requests`;
+    if (!metrics.conditionsValid) {
+      equation.textContent = "Enter 2–8 distinct positive maximum-token conditions, including the baseline.";
+    } else if (metrics.modelIds.length && metrics.taskIds.length && Number.isFinite(metrics.requests)) {
+      equation.textContent = `${metrics.modelIds.length} model${metrics.modelIds.length === 1 ? "" : "s"} across ${metrics.taskIds.length} task${metrics.taskIds.length === 1 ? "" : "s"} · ${metrics.items} total items · ${metrics.conditions} condition${metrics.conditions === 1 ? "" : "s"} · ${metrics.controls.repetitions} repetition${metrics.controls.repetitions === 1 ? "" : "s"} = ${metrics.requests} requests`;
     } else {
       equation.textContent = "Select at least one model and task.";
     }
@@ -249,7 +274,11 @@
     updateSummary();
   });
   document.getElementById("clear-models").addEventListener("click", () => setSelectedModels([]));
-  ["temperature", "max-tokens", "repetitions", "item-limit"].forEach((id) => document.getElementById(id).addEventListener("input", updateSummary));
+  ["temperature", "max-tokens", "repetitions", "item-limit", "ablation-values"].forEach((id) => document.getElementById(id).addEventListener("input", updateSummary));
+  document.getElementById("ablation-enabled").addEventListener("change", (event) => {
+    document.getElementById("ablation-options").classList.toggle("d-none", !event.currentTarget.checked);
+    updateSummary();
+  });
   document.getElementById("save-preset").addEventListener("click", () => {
     const name = document.getElementById("preset-name").value.trim();
     const models = checkedValues('input[name="models"]');

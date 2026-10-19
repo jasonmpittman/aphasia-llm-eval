@@ -18,12 +18,22 @@
     efficiencySort: {key: "model_id", ascending: true},
     efficiencyChart: null,
     detailChart: null,
+    ablationPerformanceChart: null,
+    ablationParetoChart: null,
+    resultMode: "baseline",
     source: null,
     refreshTimer: null,
   };
 
-  function aggregate(modelId, taskId, name, field = null) {
-    return state.detail.aggregates.find((value) => value.model_id === modelId && value.task_id === taskId && value.stat_name === name && value.field === field)?.value ?? null;
+  function activeCondition(modelId, taskId) {
+    if (state.resultMode === "best" && state.detail?.ablation?.enabled) {
+      return state.detail.ablation.best_conditions.find((entry) => entry.model_id === modelId && entry.task_id === taskId)?.condition_id || "baseline";
+    }
+    return "baseline";
+  }
+
+  function aggregate(modelId, taskId, name, field = null, conditionId = activeCondition(modelId, taskId)) {
+    return state.detail.aggregates.find((value) => value.model_id === modelId && value.task_id === taskId && value.condition_id === conditionId && value.stat_name === name && value.field === field)?.value ?? null;
   }
 
   function taskTitle(taskId) {
@@ -39,7 +49,8 @@
   }
 
   function jobItems(modelId, taskId) {
-    return state.items.filter((item) => item.model_id === modelId && item.task_id === taskId);
+    const conditionId = activeCondition(modelId, taskId);
+    return state.items.filter((item) => item.model_id === modelId && item.task_id === taskId && item.condition_id === conditionId);
   }
 
   function failedItems(modelId, taskId) {
@@ -90,10 +101,11 @@
   function renderOverview() {
     const cards = document.getElementById("overview-cards");
     cards.replaceChildren();
-    const failures = state.items.filter((item) => item.status !== "ok" && item.status !== "cancelled");
+    const active = models().flatMap((model) => tasks().flatMap((task) => jobItems(model, task)));
+    const failures = active.filter((item) => item.status !== "ok" && item.status !== "cancelled");
     cards.append(metricCard(
       "Failed jobs",
-      `${failures.length} / ${state.items.length}`,
+      `${failures.length} / ${active.length}`,
       failures.length ? "Open Items and filter failures for details." : "All jobs returned comparable output.",
     ));
     tasks().forEach((taskId) => {
@@ -148,7 +160,8 @@
 
   function efficiencyRows() {
     return models().flatMap((model) => tasks().map((task) => {
-      const estimated = state.items.some((item) => item.model_id === model && item.task_id === task && item.tokens_estimated);
+      const conditionId = activeCondition(model, task);
+      const estimated = state.items.some((item) => item.model_id === model && item.task_id === task && item.condition_id === conditionId && item.tokens_estimated);
       const source = state.detail.models.find((entry) => entry.model_id === model)?.pricing_source || "unknown";
       return {
         model_id: model,
@@ -251,7 +264,7 @@
   function renderNumericDetail(taskId) {
     const container = document.getElementById("task-detail-view");
     container.replaceChildren();
-    const taskItems = state.items.filter((item) => item.task_id === taskId && item.status === "ok");
+    const taskItems = models().flatMap((model) => jobItems(model, taskId)).filter((item) => item.status === "ok");
     models().forEach((model) => {
       const rows = taskItems.filter((item) => item.model_id === model);
       const block = element("section", {className: "detail-model-block"}, [element("h3", {className: "h5", text: model})]);
@@ -277,7 +290,7 @@
   function renderTokenDetail(taskId) {
     const container = document.getElementById("task-detail-view");
     container.replaceChildren();
-    const taskItems = state.items.filter((item) => item.task_id === taskId && item.status === "ok");
+    const taskItems = models().flatMap((model) => jobItems(model, taskId)).filter((item) => item.status === "ok");
     const tagset = state.taskMeta.get(taskId)?.view_descriptor?.chart?.categories || [];
     const chartDatasets = [];
     models().forEach((model, modelIndex) => {
@@ -331,24 +344,133 @@
     ]));
   }
 
+  function configureAblationControls() {
+    const enabled = Boolean(state.detail.ablation?.enabled);
+    document.getElementById("ablation-tab-item").classList.toggle("d-none", !enabled);
+    const control = document.getElementById("result-mode-control");
+    control.classList.toggle("d-none", !enabled);
+    if (!enabled) state.resultMode = "baseline";
+    const select = document.getElementById("result-mode-select");
+    select.value = state.resultMode;
+    select.onchange = () => {
+      state.resultMode = select.value;
+      renderOverview();
+      renderEfficiency();
+      renderTaskDetail();
+      renderRunInfo();
+    };
+  }
+
+  function renderAblation() {
+    const ablation = state.detail.ablation;
+    if (!ablation?.enabled) return;
+    document.getElementById("ablation-warning-text").textContent = ablation.same_dataset_warning;
+    const summaries = ablation.summaries;
+    const best = new Set(ablation.best_conditions.map((entry) => `${entry.model_id}\u0000${entry.task_id}\u0000${entry.condition_id}`));
+    const totalJobs = summaries.reduce((sum, row) => sum + (row.items_run || 0), 0);
+    const truncations = summaries.reduce((sum, row) => sum + (row.truncated_responses || 0), 0);
+    const removed = summaries.reduce((sum, row) => sum + (row.optional_parameters_removed || 0), 0);
+    const cards = document.getElementById("ablation-cards");
+    cards.replaceChildren(
+      metricCard("Conditions", String(ablation.conditions.length), `${ablation.parameter.replaceAll("_", " ")} values`),
+      metricCard("Ablation jobs", formatNumber(totalJobs, 0), "Failures remain in the denominator."),
+      metricCard("Token-limit truncations", formatNumber(truncations, 0), "Reported with finish_reason = length."),
+      metricCard("Parameters removed", formatNumber(removed, 0), "Gateway rejected optional request parameters."),
+    );
+
+    const table = element("table", {className: "table align-middle"});
+    table.append(element("thead", {}, element("tr", {}, [
+      "Model", "Task", "Max tokens", "Comparable", "Parse failures", "Errors", "Truncated", "Agreement", "Headline", "SD", "Estimated cost", "Mean latency", "Selection",
+    ].map((label) => element("th", {scope: "col", text: label})))));
+    const body = element("tbody");
+    summaries.forEach((row) => {
+      const key = `${row.model_id}\u0000${row.task_id}\u0000${row.condition_id}`;
+      const selected = best.has(key);
+      body.append(element("tr", {className: selected ? "ablation-best-row" : ""}, [
+        element("th", {scope: "row", text: row.model_id}),
+        element("td", {text: taskTitle(row.task_id)}),
+        element("td", {text: formatNumber(row.value, 0)}),
+        element("td", {text: row.comparable_response_rate === null ? "n/a" : `${formatNumber(row.comparable_response_rate * 100, 1)}%`}),
+        element("td", {text: formatNumber(row.parse_failures, 0)}),
+        element("td", {text: formatNumber(row.errors, 0)}),
+        element("td", {text: formatNumber(row.truncated_responses, 0)}),
+        element("td", {text: row.token_agreement === null ? "n/a" : `${formatNumber(row.token_agreement * 100, 1)}%`}),
+        element("td", {text: formatNumber(row.headline, 3)}),
+        element("td", {text: formatNumber(row.headline_stddev, 3)}),
+        element("td", {text: formatCurrency(row.estimated_cost_usd)}),
+        element("td", {text: row.mean_latency_ms === null ? "n/a" : `${formatNumber(row.mean_latency_ms, 1)} ms`}),
+        element("td", {text: selected ? "Best observed" : row.is_baseline ? "Baseline" : "—"}),
+      ]));
+    });
+    table.append(body);
+    document.getElementById("ablation-table").replaceChildren(table);
+    renderAblationCharts(summaries);
+  }
+
+  function renderAblationCharts(summaries) {
+    if (!window.Chart) return;
+    state.ablationPerformanceChart?.destroy();
+    state.ablationParetoChart?.destroy();
+    const groups = [...new Set(summaries.map((row) => `${row.model_id}\u0000${row.task_id}`))];
+    const palette = ["#60a5fa", "#22d3ee", "#a78bfa", "#f59e0b", "#34d399", "#fb7185"];
+    const datasets = groups.map((group, index) => {
+      const [modelId, taskId] = group.split("\u0000");
+      return {
+        label: `${modelId} · ${taskTitle(taskId)}`,
+        data: summaries.filter((row) => row.model_id === modelId && row.task_id === taskId && row.headline !== null).sort((a, b) => a.value - b.value).map((row) => ({x: row.value, y: row.headline, condition: row.label})),
+        borderColor: palette[index % palette.length],
+        backgroundColor: palette[index % palette.length],
+        tension: 0.2,
+      };
+    });
+    state.ablationPerformanceChart = new Chart(document.getElementById("ablation-performance-chart"), {
+      type: "line",
+      data: {datasets},
+      options: {responsive: true, maintainAspectRatio: false, parsing: false, scales: {x: {type: "linear", title: {display: true, text: "Maximum output tokens"}}, y: {title: {display: true, text: "Task headline value"}}}},
+    });
+    const paretoDatasets = groups.map((group, index) => {
+      const [modelId, taskId] = group.split("\u0000");
+      return {
+        label: `${modelId} · ${taskTitle(taskId)}`,
+        data: summaries.filter((row) => row.model_id === modelId && row.task_id === taskId && row.estimated_cost_usd !== null && row.headline !== null).map((row) => ({x: row.estimated_cost_usd, y: row.headline, condition: row.label})),
+        backgroundColor: palette[index % palette.length],
+        pointRadius: 6,
+      };
+    });
+    state.ablationParetoChart = new Chart(document.getElementById("ablation-pareto-chart"), {
+      type: "scatter",
+      data: {datasets: paretoDatasets},
+      options: {responsive: true, maintainAspectRatio: false, parsing: false, plugins: {tooltip: {callbacks: {label: (context) => `${context.dataset.label} · ${context.raw.condition}: ${formatCurrency(context.raw.x)}, headline ${formatNumber(context.raw.y, 3)}`}}}, scales: {x: {title: {display: true, text: "Estimated cost (USD)"}}, y: {title: {display: true, text: "Task headline value"}}}},
+    });
+  }
+
   function renderTokenAnalysis() {
     const modelSelect = document.getElementById("token-model-select");
     const itemSelect = document.getElementById("token-item-select");
+    const conditionSelect = document.getElementById("token-condition-select");
     const repetitionSelect = document.getElementById("token-repetition-select");
     const viewSelect = document.getElementById("token-view-select");
     const currentModel = modelSelect.value;
     const currentItem = itemSelect.value;
+    const currentCondition = conditionSelect.value;
     const currentRepetition = repetitionSelect.value;
     const itemIds = [...new Set(state.items.filter((item) => Array.isArray(item.input?.tokens)).map((item) => item.item_id))].sort();
     const repetitions = [...new Set(state.items.map((item) => item.repetition))].sort((a, b) => a - b);
+    const conditions = state.detail.ablation?.enabled
+      ? state.detail.ablation.conditions
+      : [{condition_id: "baseline", label: "Baseline"}];
     modelSelect.replaceChildren(...models().map((model) => element("option", {value: model, text: model})));
     itemSelect.replaceChildren(...itemIds.map((item) => element("option", {value: item, text: item})));
+    conditionSelect.replaceChildren(...conditions.map((condition) => element("option", {value: condition.condition_id, text: condition.label})));
     repetitionSelect.replaceChildren(...repetitions.map((repetition) => element("option", {value: repetition, text: String(repetition)})));
     if (models().includes(currentModel)) modelSelect.value = currentModel;
     if (itemIds.includes(currentItem)) itemSelect.value = currentItem;
+    if (conditions.some((condition) => condition.condition_id === currentCondition)) conditionSelect.value = currentCondition;
+    document.getElementById("token-condition-control").classList.toggle("d-none", !state.detail.ablation?.enabled);
     if (repetitions.includes(Number(currentRepetition))) repetitionSelect.value = currentRepetition;
     modelSelect.onchange = renderTokenAnalysisView;
     itemSelect.onchange = renderTokenAnalysisView;
+    conditionSelect.onchange = renderTokenAnalysisView;
     repetitionSelect.onchange = renderTokenAnalysisView;
     viewSelect.onchange = renderTokenAnalysisView;
     renderTokenAnalysisView();
@@ -358,9 +480,10 @@
     const container = document.getElementById("token-analysis-view");
     const model = document.getElementById("token-model-select").value;
     const itemId = document.getElementById("token-item-select").value;
+    const conditionId = document.getElementById("token-condition-select").value || "baseline";
     const repetition = Number(document.getElementById("token-repetition-select").value);
     const view = document.getElementById("token-view-select").value;
-    const candidates = state.items.filter((item) => item.model_id === model && item.item_id === itemId && item.repetition === repetition);
+    const candidates = state.items.filter((item) => item.model_id === model && item.item_id === itemId && item.condition_id === conditionId && item.repetition === repetition);
     const ciu = candidates.find((item) => item.task_id === "ciu_scoring");
     const pos = candidates.find((item) => item.task_id === "pos_breakdown");
     const source = ciu?.input?.tokens || pos?.input?.tokens;
@@ -453,7 +576,8 @@
     const list = document.getElementById("items-list");
     list.replaceChildren();
     visible.forEach((item) => {
-      const metadata = element("div", {}, [element("strong", {text: `${item.item_id} · ${item.model_id}`}), element("span", {className: "d-block small text-secondary", text: `${taskTitle(item.task_id)} · repetition ${item.repetition}${item.tokens_estimated ? " · token counts est." : ""}`})]);
+      const conditionText = state.detail.ablation?.enabled ? ` · ${item.condition.label}` : "";
+      const metadata = element("div", {}, [element("strong", {text: `${item.item_id} · ${item.model_id}`}), element("span", {className: "d-block small text-secondary", text: `${taskTitle(item.task_id)}${conditionText} · repetition ${item.repetition}${item.tokens_estimated ? " · token counts est." : ""}`})]);
       const body = element("div", {className: "item-result-body"}, [dataBlock("Input", item.input), dataBlock("Gold", item.gold), dataBlock("Model answer", item.parsed_output)]);
       if (item.status !== "ok") body.prepend(element("p", {className: "result-error-message", text: item.error_message || "This job did not return a comparable result."}));
       const details = element("details", {className: "raw-output"}, [element("summary", {text: "Raw output and comparison details"}), dataBlock("Raw model output", item.raw_output), dataBlock("Response diagnostics", item.comparison?.diagnostics), dataBlock("Comparison", item.comparison), item.error_message ? element("p", {className: "text-danger mt-3", text: item.error_message}) : null]);
@@ -497,10 +621,12 @@
     document.getElementById("run-title").textContent = run.label || `Run ${run.id.slice(0, 8)}`;
     setStatus(run.status);
     renderProgress();
+    configureAblationControls();
     renderOverview();
     renderEfficiency();
     renderTaskSelector();
     renderTokenAnalysis();
+    renderAblation();
     renderItems();
     renderRunInfo();
     document.getElementById("result-refresh").textContent = terminalStatuses.has(run.status) ? `Finished ${formatDate(run.finished_at)}` : "Results update as jobs complete.";

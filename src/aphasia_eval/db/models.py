@@ -137,6 +137,7 @@ class Aggregate(Base):
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"))
     model_id: Mapped[str] = mapped_column(String(500))
     task_id: Mapped[str] = mapped_column(String(100))
+    condition_id: Mapped[str] = mapped_column(String(100), default="baseline")
     stat_name: Mapped[str] = mapped_column(String(100))
     field: Mapped[str | None] = mapped_column(String(100))
     value: Mapped[float | None] = mapped_column(Float)

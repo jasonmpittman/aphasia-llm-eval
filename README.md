@@ -666,13 +666,22 @@ JSON unless noted. Errors use `{"error": {"code": "...", "message": "..."}}`. St
     "temperature": 0,
     "max_tokens": 2048,
     "repetitions": 1,
-    "max_items_per_task": null
+    "max_items_per_task": null,
+    "ablation": {
+      "parameter": "max_tokens",
+      "values": [256, 512, 1024, 2048]
+    }
   },
   "label": "optional name"
 }
 ```
 
 Validation: at least one model and one task, models must be in the discovered list, tasks must be valid with a usable gold file, and the total request count must not exceed `MAX_REQUESTS_PER_RUN`. Success returns `202` with `{"run_id": "..."}`.
+
+`settings.ablation` is optional. M7 supports `max_tokens` with two to eight
+distinct positive-integer conditions. The ordinary `max_tokens` value is
+always inserted as the baseline when omitted from `values`. Request counts and
+spend guards include every condition and repetition.
 
 **SSE events:** `run_started`, `job_completed` (with running totals), `job_failed`, `run_progress`, `run_completed`, `run_cancelled`.
 
@@ -686,7 +695,7 @@ Responsive Bootstrap layout with a dark cobalt visual system, bento-grid content
 
 - **Models:** searchable checklist from LiteLLM with pricing and text-capability badges, select all and clear, and presets saved in browser `localStorage`. Confirmed non-text models are hidden by default; a toggle reveals them disabled with the reason.
 - **Tasks:** one card per task showing category, description, item count, and gold status. Tasks with a missing or invalid task or gold file are disabled with the reason shown. Cards are generated from the loaded task files, so a new task appears with no UI change.
-- **Settings drawer:** temperature, max output tokens, repetitions, item limit per task.
+- **Settings drawer:** temperature, max output tokens, repetitions, item limit per task, and an opt-in max-token ablation study with comma-separated conditions.
 - **Sticky run summary:** "3 models × 2 tasks × 120 items = 720 requests", with a rough cost range when pricing is known. A confirmation modal appears above a configurable request count.
 
 ### 12.2 Run page (`/runs/<id>`)
@@ -698,9 +707,15 @@ Live progress first (overall bar, per-model rows, cancel), then tabs that fill a
 3. **Task detail:** a task selector, then the comparator's view.
    - `ciu_scoring`: per model, a table of items with model versus gold for `total_words`, `ciu_count`, and `percent_ciu`, signed differences, and a scatter of model CIU count versus gold CIU count with an identity line.
    - `pos_breakdown`: per model, gold versus model counts per POS category (grouped bars), token agreement, derived ratios, and alignment problems.
-4. **Token analysis:** an utterance-by-utterance rendering that joins CIU and POS results by fixed token index. Select the repetition and switch between model, gold, and difference views; badges show word/non-word, CIU/non-CIU, and POS.
-5. **Items:** every item with the input, gold answer, parsed answer, differences, raw output, and safe response diagnostics. Filters cover disagreements, all failures, and alignment problems.
-6. **Run info:** settings, concurrency, task and prompt hashes, gold file hashes, app version, timestamps. Enough to reproduce the run.
+4. **Token analysis:** an utterance-by-utterance rendering that joins CIU and POS results by fixed token index. Select the condition and repetition, then switch between model, gold, and difference views; badges show word/non-word, CIU/non-CIU, and POS.
+5. **Ablation:** for ablation runs, a condition table and charts show comparable-response rate, parse and request failures, truncation, agreement, headline variability, estimated cost, latency, and the cost/performance frontier. The selection rule prioritizes response coverage, then the task headline, lower cost, and lower latency.
+6. **Items:** every item and condition with the input, gold answer, parsed answer, differences, raw output, and safe response diagnostics. Filters cover disagreements, all failures, and alignment problems.
+7. **Run info:** settings, concurrency, task and prompt hashes, gold file hashes, app version, timestamps. Enough to reproduce the run.
+
+Overview, Efficiency, and Task Detail default to the baseline configuration.
+For an ablation run they can instead show the best-observed condition for each
+model/task pair. The UI labels this selection as exploratory because it is
+chosen on the same gold items being displayed.
 
 Every cost is labeled "estimated". Token counts from the fallback estimator are marked "est.".
 
@@ -715,8 +730,8 @@ List of runs with label, date, models, tasks, status, and headline results. Open
 | Format | Contents |
 |--------|----------|
 | **CSV** | A ZIP package containing an item-level CSV (one row per run, model, task, item, repetition) with inputs, gold, raw output, parsed output, comparison fields, tokens in and out, cost and cost source, latency, attempts, status, and error, plus an aggregate CSV with one row per model and task. |
-| **JSON** | Full run record: settings, versions and hashes, aggregates, item-level results. |
-| **XLSX** | Sheets: Summary, Efficiency, Items, Run Info. |
+| **JSON** | Full versioned run record: settings, conditions, versions and hashes, per-condition aggregates, and item-level results. |
+| **XLSX** | Sheets: Summary, Efficiency, Items, Run Info, plus Ablation for experiment runs. |
 | **PDF** | Run info, overview matrix, efficiency table, charts, per-task comparison summaries, a short methods and limitations note, the not-a-clinical-tool disclaimer, and the estimated-cost caveat. |
 
 Exports never include the API key or environment variables.
@@ -879,12 +894,12 @@ pytest
 ### v0.2 beta milestones
 
 The token-level CIU/POS analysis, model-capability filtering, and generic
-response diagnostics were completed after the v0.1 beta baseline. The
-remaining milestones are:
+response diagnostics were completed after the v0.1 beta baseline. The v0.2
+milestones are:
 
 | Milestone | Scope | Status |
 |-----------|-------|--------|
-| **M7: Ablation studies** | Add an opt-in experiment mode that expands a run across declared parameter conditions. Begin with `max_tokens`; keep temperature and prompt fixed, support repetitions, include failed responses in coverage statistics, record requested versus accepted parameters, and show the expanded request/cost estimate before launch. Add an Ablation tab with accuracy, valid-response rate, truncation, variability, cost, latency, and Pareto views. Ordinary result tabs may switch between the baseline and a per-model/per-task best-observed condition, with the selection rule and same-dataset limitation shown explicitly. Export every condition and its provenance. | Planned |
+| **M7: Ablation studies** | Add an opt-in experiment mode that expands a run across declared parameter conditions. Begin with `max_tokens`; keep temperature and prompt fixed, support repetitions, include failed responses in coverage statistics, record requested versus accepted parameters, and show the expanded request/cost estimate before launch. Add an Ablation tab with accuracy, valid-response rate, truncation, variability, cost, latency, and Pareto views. Ordinary result tabs may switch between the baseline and a per-model/per-task best-observed condition, with the selection rule and same-dataset limitation shown explicitly. Export every condition and its provenance. | Complete |
 | **M8: Richer agreement metrics** | Add per-label precision, recall, and F1 for POS and CIU token labels, plus confusion matrices and repetition summaries. Keep raw agreement and count-error metrics; do not collapse unlike tasks into a composite score. | Planned |
 | **M9: Experiment comparison** | Add first-class prompt variants and side-by-side comparison of two runs or conditions, including prompt/task/gold hashes and signed metric changes. | Planned |
 | **M10: Execution continuity** | Add streamed completions with time-to-first-token measurement and resumable interrupted runs without duplicating completed jobs. | Planned |

@@ -205,7 +205,9 @@ aphasia-llm-eval/
 │       │   └── parsers.py        # kv, token_table
 │       ├── comparison/
 │       │   ├── __init__.py       # Comparator registry
+│       │   ├── classification.py # Per-label metrics and confusion matrices
 │       │   ├── derived.py        # Named derived-value functions (no eval)
+│       │   ├── ciu_token_labels.py
 │       │   ├── numeric_fields.py
 │       │   └── token_tags.py
 │       ├── db/
@@ -605,15 +607,25 @@ The comparison layer is arithmetic only. It reads the model's parsed answer and 
 
 | Per item | The same numeric count differences, plus a three-state label for every fixed token: non-word, word/non-CIU, or CIU. Out-of-range indices and CIU indices not also marked as words are alignment problems. |
 |---|---|
-| Aggregate per (model, task) | Numeric aggregates plus mean token-label agreement and mean word-label agreement. |
+| Aggregate per (model, task, condition) | Numeric aggregates plus mean token-label agreement, mean word-label agreement, pooled per-label precision/recall/F1/support, macro averages, confusion counts, and per-label repetition mean and SD. |
 
 **`token_tags`** (used by `pos_breakdown`)
 
 | Per item | Alignment status (complete, missing indices, duplicate or extra indices), tags outside the declared tagset, token agreement (tokens with the same tag ÷ gold tokens), per-category counts and proportions for model and gold, signed count difference per category, derived ratios. A missing or invalid tag counts as a disagreement. |
 |---|---|
-| Aggregate per (model, task) | Items run, parse failures, mean token agreement, per category: mean absolute and mean signed count difference. |
+| Aggregate per (model, task, condition) | Items run, parse failures, mean token agreement, per-category count differences, pooled per-label precision/recall/F1/support, macro averages, confusion counts, and per-label repetition mean and SD. |
 
-Token agreement is raw percent agreement. It is not corrected for chance and is dominated by frequent categories, which the per-category differences help expose. Per-category precision and recall are on the roadmap.
+Token agreement is raw percent agreement. It is not corrected for chance and
+can be dominated by frequent categories. Precision asks whether uses of one
+label were correct; recall asks how many gold instances of that label were
+found; F1 balances the two. Support is the gold-token count for that label.
+Confusion-matrix rows are gold labels and columns are model predictions.
+Missing, invalid, duplicate, and extra predictions use explicit buckets rather
+than disappearing from the metrics. Pooled metrics combine all comparable
+token decisions in a model/task/condition group. Repetition summaries compute
+each repetition separately, then report the mean and population standard
+deviation. Failed and unparseable jobs remain in coverage statistics but do not
+enter label metrics.
 
 ### 10.3 Writing a comparator plugin
 
@@ -705,8 +717,8 @@ Live progress first (overall bar, per-model rows, cancel), then tabs that fill a
 1. **Overview:** a matrix of models × tasks showing each task's headline statistic (a number, with a heat-scale background as a secondary cue). Alongside it, cards for best headline value per task, lowest estimated cost, and fastest model, each labeled with its basis.
 2. **Efficiency:** input tokens, output tokens, estimated cost (with source indicator), total time, mean and 95th-percentile latency per model per task, sortable. A scatter of headline statistic versus cost per task.
 3. **Task detail:** a task selector, then the comparator's view.
-   - `ciu_scoring`: per model, a table of items with model versus gold for `total_words`, `ciu_count`, and `percent_ciu`, signed differences, and a scatter of model CIU count versus gold CIU count with an identity line.
-   - `pos_breakdown`: per model, gold versus model counts per POS category (grouped bars), token agreement, derived ratios, and alignment problems.
+   - `ciu_scoring`: per model, a table of items with model versus gold for `total_words`, `ciu_count`, and `percent_ciu`, signed differences, a scatter of model CIU count versus gold CIU count, and per-label precision, recall, F1, support, confusion matrix, and repetition stability for non-word, word/non-CIU, and CIU labels.
+   - `pos_breakdown`: per model, gold versus model counts per POS category, token agreement, derived ratios, alignment problems, per-label precision/recall/F1/support, a confusion matrix, and repetition stability.
 4. **Token analysis:** an utterance-by-utterance rendering that joins CIU and POS results by fixed token index. Select the condition and repetition, then switch between model, gold, and difference views; badges show word/non-word, CIU/non-CIU, and POS.
 5. **Ablation:** for ablation runs, a condition table and charts show comparable-response rate, parse and request failures, truncation, agreement, headline variability, estimated cost, latency, and the cost/performance frontier. The selection rule prioritizes response coverage, then the task headline, lower cost, and lower latency.
 6. **Items:** every item and condition with the input, gold answer, parsed answer, differences, raw output, and safe response diagnostics. Filters cover disagreements, all failures, and alignment problems.
@@ -718,6 +730,11 @@ model/task pair. The UI labels this selection as exploratory because it is
 chosen on the same gold items being displayed.
 
 Every cost is labeled "estimated". Token counts from the fallback estimator are marked "est.".
+
+Technical metrics include focusable **?** definitions. The persistent
+**Guide & glossary** page (`/guide`) explains the evaluation workflow, clinical
+task terms, agreement metrics, how to read reports, ablation limitations, and
+common failure states in plain language.
 
 ### 12.3 History page
 
@@ -731,8 +748,8 @@ List of runs with label, date, models, tasks, status, and headline results. Open
 |--------|----------|
 | **CSV** | A ZIP package containing an item-level CSV (one row per run, model, task, item, repetition) with inputs, gold, raw output, parsed output, comparison fields, tokens in and out, cost and cost source, latency, attempts, status, and error, plus an aggregate CSV with one row per model and task. |
 | **JSON** | Full versioned run record: settings, conditions, versions and hashes, per-condition aggregates, and item-level results. |
-| **XLSX** | Sheets: Summary, Efficiency, Items, Run Info, plus Ablation for experiment runs. |
-| **PDF** | Run info, overview matrix, efficiency table, charts, per-task comparison summaries, a short methods and limitations note, the not-a-clinical-tool disclaimer, and the estimated-cost caveat. |
+| **XLSX** | Sheets: Summary, Efficiency, Agreement, Confusion, Items, Run Info, plus Ablation for experiment runs. |
+| **PDF** | Run info, overview matrix, efficiency table, charts, per-task comparison and per-label agreement summaries, a short methods and limitations note, the not-a-clinical-tool disclaimer, and the estimated-cost caveat. |
 
 Exports never include the API key or environment variables.
 
@@ -900,7 +917,7 @@ milestones are:
 | Milestone | Scope | Status |
 |-----------|-------|--------|
 | **M7: Ablation studies** | Add an opt-in experiment mode that expands a run across declared parameter conditions. Begin with `max_tokens`; keep temperature and prompt fixed, support repetitions, include failed responses in coverage statistics, record requested versus accepted parameters, and show the expanded request/cost estimate before launch. Add an Ablation tab with accuracy, valid-response rate, truncation, variability, cost, latency, and Pareto views. Ordinary result tabs may switch between the baseline and a per-model/per-task best-observed condition, with the selection rule and same-dataset limitation shown explicitly. Export every condition and its provenance. | Complete |
-| **M8: Richer agreement metrics** | Add per-label precision, recall, and F1 for POS and CIU token labels, plus confusion matrices and repetition summaries. Keep raw agreement and count-error metrics; do not collapse unlike tasks into a composite score. | Planned |
+| **M8: Richer agreement metrics** | Add per-label precision, recall, and F1 for POS and CIU token labels, plus confusion matrices and repetition summaries. Keep raw agreement and count-error metrics; do not collapse unlike tasks into a composite score. Add layered plain-language help with inline definitions and a Guide & glossary page. | Complete |
 | **M9: Experiment comparison** | Add first-class prompt variants and side-by-side comparison of two runs or conditions, including prompt/task/gold hashes and signed metric changes. | Planned |
 | **M10: Execution continuity** | Add streamed completions with time-to-first-token measurement and resumable interrupted runs without duplicating completed jobs. | Planned |
 | **M11: v0.2 beta readiness** | Add schema migration/versioning for existing SQLite databases, extend exports and documentation for experiments, run live cross-model compatibility checks, complete accessibility and browser smoke tests, and update package and citation versions for the beta release. | Planned |

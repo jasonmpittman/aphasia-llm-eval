@@ -82,7 +82,7 @@ class RunExportData:
         """Return the complete versioned JSON export document."""
 
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "exported_at": _isoformat(datetime.now(UTC)),
             "run": self.run,
             "models": self.models,
@@ -286,6 +286,65 @@ def _aggregate_column(aggregate: dict[str, Any]) -> str:
     return f"{aggregate['stat_name']}.{field}" if field else aggregate["stat_name"]
 
 
+def _agreement_rows(data: RunExportData) -> list[dict[str, Any]]:
+    lookup = _condition_aggregate_lookup(data)
+    groups = sorted(
+        {
+            (
+                aggregate["model_id"],
+                aggregate["task_id"],
+                aggregate["condition_id"],
+                aggregate["field"],
+            )
+            for aggregate in data.aggregates
+            if aggregate["stat_name"] == "support" and aggregate["field"]
+        }
+    )
+    rows = []
+    for model_id, task_id, condition_id, label in groups:
+        key = (model_id, task_id, condition_id)
+        rows.append(
+            {
+                "Model": model_id,
+                "Task": task_id,
+                "Condition": condition_id,
+                "Label": label,
+                "Precision": lookup.get((*key, "precision", label)),
+                "Recall": lookup.get((*key, "recall", label)),
+                "F1": lookup.get((*key, "f1", label)),
+                "Support": lookup.get((*key, "support", label)),
+                "Precision repetition mean": lookup.get((*key, "precision_repetition_mean", label)),
+                "Precision repetition SD": lookup.get((*key, "precision_repetition_stddev", label)),
+                "Recall repetition mean": lookup.get((*key, "recall_repetition_mean", label)),
+                "Recall repetition SD": lookup.get((*key, "recall_repetition_stddev", label)),
+                "F1 repetition mean": lookup.get((*key, "f1_repetition_mean", label)),
+                "F1 repetition SD": lookup.get((*key, "f1_repetition_stddev", label)),
+            }
+        )
+    return rows
+
+
+def _confusion_rows(data: RunExportData) -> list[dict[str, Any]]:
+    rows = []
+    for aggregate in data.aggregates:
+        if aggregate["stat_name"] != "confusion" or not aggregate["field"]:
+            continue
+        gold_label, separator, model_label = aggregate["field"].partition(" → ")
+        if not separator:
+            continue
+        rows.append(
+            {
+                "Model": aggregate["model_id"],
+                "Task": aggregate["task_id"],
+                "Condition": aggregate["condition_id"],
+                "Gold label": gold_label,
+                "Model label": model_label,
+                "Count": aggregate["value"],
+            }
+        )
+    return rows
+
+
 def _csv_text(columns: tuple[str, ...], rows: list[dict[str, Any]]) -> str:
     stream = StringIO(newline="")
     writer = csv.DictWriter(stream, fieldnames=columns, extrasaction="ignore", lineterminator="\n")
@@ -309,6 +368,10 @@ def _xlsx(data: RunExportData) -> bytes:
     summary.title = "Summary"
     _write_summary_sheet(summary, data)
     _write_efficiency_sheet(workbook.create_sheet("Efficiency"), data)
+    if _agreement_rows(data):
+        _write_agreement_sheet(workbook.create_sheet("Agreement"), data)
+    if _confusion_rows(data):
+        _write_confusion_sheet(workbook.create_sheet("Confusion"), data)
     _write_items_sheet(workbook.create_sheet("Items"), data)
     if isinstance(data.run["settings"].get("ablation"), dict):
         _write_ablation_sheet(workbook.create_sheet("Ablation"), data)
@@ -411,6 +474,39 @@ def _write_ablation_sheet(sheet, data: RunExportData) -> None:
         sheet.append([_excel_value(row.get(column)) for column in columns])
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = f"A1:{get_column_letter(len(columns))}{max(1, sheet.max_row)}"
+
+
+def _write_agreement_sheet(sheet, data: RunExportData) -> None:
+    columns = (
+        "Model",
+        "Task",
+        "Condition",
+        "Label",
+        "Precision",
+        "Recall",
+        "F1",
+        "Support",
+        "Precision repetition mean",
+        "Precision repetition SD",
+        "Recall repetition mean",
+        "Recall repetition SD",
+        "F1 repetition mean",
+        "F1 repetition SD",
+    )
+    sheet.append(columns)
+    for row in _agreement_rows(data):
+        sheet.append([_excel_value(row.get(column)) for column in columns])
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:N{max(1, sheet.max_row)}"
+
+
+def _write_confusion_sheet(sheet, data: RunExportData) -> None:
+    columns = ("Model", "Task", "Condition", "Gold label", "Model label", "Count")
+    sheet.append(columns)
+    for row in _confusion_rows(data):
+        sheet.append([_excel_value(row.get(column)) for column in columns])
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:F{max(1, sheet.max_row)}"
 
 
 def _write_items_sheet(sheet, data: RunExportData) -> None:
@@ -522,7 +618,19 @@ def _pdf(data: RunExportData) -> bytes:
         story.append(Paragraph(f"Task summary: {_safe_text(task_id)}", styles["Heading2"]))
         task_rows = [["Model", "Condition", "Statistic", "Field", "Value", "N"]]
         for aggregate in data.aggregates:
-            if aggregate["task_id"] == task_id:
+            if aggregate["task_id"] == task_id and aggregate["stat_name"] not in {
+                "confusion",
+                "precision",
+                "recall",
+                "f1",
+                "support",
+                "precision_repetition_mean",
+                "precision_repetition_stddev",
+                "recall_repetition_mean",
+                "recall_repetition_stddev",
+                "f1_repetition_mean",
+                "f1_repetition_stddev",
+            }:
                 task_rows.append(
                     [
                         _safe_text(aggregate["model_id"]),
@@ -542,6 +650,45 @@ def _pdf(data: RunExportData) -> bytes:
         chart = _headline_chart(data, task_id, aggregate_lookup)
         if chart is not None:
             story.extend([Spacer(1, 8), chart])
+        agreement_rows = [row for row in _agreement_rows(data) if row["Task"] == task_id]
+        if agreement_rows:
+            story.extend(
+                [
+                    Spacer(1, 10),
+                    Paragraph("Per-label agreement", styles["Heading3"]),
+                    Paragraph(
+                        "Precision asks whether model uses of a label were correct; recall asks "
+                        "how many gold instances it found; F1 balances the two. Support is the "
+                        "number of gold tokens.",
+                        styles["BodyText"],
+                    ),
+                    _pdf_table(
+                        [["Model", "Condition", "Label", "Precision", "Recall", "F1", "Support"]]
+                        + [
+                            [
+                                _safe_text(row["Model"]),
+                                _safe_text(row["Condition"]),
+                                _safe_text(row["Label"]),
+                                _format_number(row["Precision"]),
+                                _format_number(row["Recall"]),
+                                _format_number(row["F1"]),
+                                _format_number(row["Support"]),
+                            ]
+                            for row in agreement_rows
+                        ],
+                        [
+                            1.6 * inch,
+                            1.15 * inch,
+                            1.25 * inch,
+                            0.75 * inch,
+                            0.75 * inch,
+                            0.75 * inch,
+                            0.7 * inch,
+                        ],
+                        font_size=7,
+                    ),
+                ]
+            )
         story.append(Spacer(1, 18))
     story.extend(
         [

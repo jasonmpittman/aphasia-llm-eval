@@ -6,6 +6,14 @@ from collections import Counter, defaultdict
 from collections.abc import Mapping
 from typing import Any
 
+from .classification import (
+    DUPLICATE_LABEL,
+    EXTRA_LABEL,
+    INVALID_LABEL,
+    MISSING_LABEL,
+    classification_summary,
+)
+
 
 class TokenTagsComparator:
     """Compare model tags to gold indices without changing gold tokenization."""
@@ -64,11 +72,21 @@ class TokenTagsComparator:
             alignment_status = "complete"
 
         token_details = []
+        classification_observations: list[tuple[str, str]] = []
         agreements = 0
         for index in sorted(gold_indices):
             gold_tag = gold_by_index[index]
             values = model_by_index.get(index, [])
             model_tag = values[0] if len(values) == 1 else None
+            if not values:
+                classification_tag = MISSING_LABEL
+            elif len(values) > 1:
+                classification_tag = DUPLICATE_LABEL
+            elif model_tag not in allowed_tags:
+                classification_tag = INVALID_LABEL
+            else:
+                classification_tag = str(model_tag)
+            classification_observations.append((str(gold_tag), classification_tag))
             agreed = bool(model_tag in allowed_tags and model_tag == gold_tag)
             agreements += int(agreed)
             token_details.append(
@@ -79,6 +97,13 @@ class TokenTagsComparator:
                     "agreed": agreed,
                 }
             )
+
+        for index in sorted(model_indices - gold_indices, key=str):
+            values = model_by_index[index]
+            for model_tag in values:
+                classification_observations.append(
+                    (EXTRA_LABEL, str(model_tag) if model_tag in allowed_tags else INVALID_LABEL)
+                )
 
         token_agreement = agreements / len(gold_by_index) if gold_by_index else None
         gold_counts = Counter(gold_by_index.values())
@@ -117,6 +142,7 @@ class TokenTagsComparator:
             }
             for tag, values in categories.items()
         }
+        classification = classification_summary(tagset, classification_observations)
         details = {
             "alignment_status": alignment_status,
             "missing_indices": missing_indices,
@@ -127,11 +153,13 @@ class TokenTagsComparator:
             "tokens": token_details,
             "categories": categories,
             "derived_ratios": derived_ratios,
+            "classification": classification,
         }
         statistics = {
             "token_agreement": token_agreement,
             "categories": category_statistics,
             "alignment_problem": alignment_status != "complete",
+            "classification": classification,
         }
         return details, matched, statistics
 
@@ -170,4 +198,5 @@ class TokenTagsComparator:
                 "type": "gold_vs_model_category_bars",
                 "categories": list(task.get("tagset", ())),
             },
+            "classification_labels": list(task.get("tagset", ())),
         }

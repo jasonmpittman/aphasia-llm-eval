@@ -92,8 +92,14 @@ def test_ciu_token_labels_reports_three_states_and_alignment_errors():
     assert outcome.details["token_label_agreement"] == 0.5
     assert outcome.details["out_of_range_indices"] == [5]
     assert outcome.details["ciu_not_word_indices"] == [5]
+    assert outcome.details["classification"]["observations"] == 5
+    assert outcome.details["classification"]["per_label"]["ciu"]["precision"] == 0.5
+    assert outcome.details["classification"]["per_label"]["ciu"]["recall"] == 0.5
+    assert outcome.details["classification"]["per_label"]["ciu"]["f1"] == 0.5
+    assert outcome.details["classification"]["confusion_matrix"]["__extra__"]["__invalid__"] == 1
     assert outcome.statistics["alignment_problem"] is True
     assert outcome.view_descriptor["token_annotations"] is True
+    assert outcome.view_descriptor["classification_labels"] == ["not_word", "not_ciu", "ciu"]
 
 
 def test_ciu_token_labels_validates_gold_contract():
@@ -173,7 +179,12 @@ def test_token_tags_reports_every_alignment_and_category_detail():
         "gold": 2.0,
     }
     assert outcome.statistics["alignment_problem"] is True
+    assert outcome.statistics["classification"]["observations"] == 5
+    assert outcome.statistics["classification"]["per_label"]["NOUN"]["precision"] == 0
+    assert outcome.statistics["classification"]["confusion_matrix"]["NOUN"]["__duplicate__"] == 1
+    assert outcome.statistics["classification"]["confusion_matrix"]["__extra__"]["NOUN"] == 1
     assert outcome.view_descriptor["chart"]["categories"] == ["DET", "NOUN", "VERB"]
+    assert outcome.view_descriptor["classification_labels"] == ["DET", "NOUN", "VERB"]
 
 
 @pytest.mark.parametrize(

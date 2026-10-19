@@ -135,6 +135,26 @@
     return JSON.stringify(value, null, 2);
   }
 
+  function helpButton(label, definition) {
+    const button = element("button", {
+      className: "metric-help",
+      type: "button",
+      text: "?",
+      "aria-label": `What does ${label} mean?`,
+      "data-bs-toggle": "popover",
+      "data-bs-trigger": "focus",
+      "data-bs-placement": "top",
+      "data-bs-title": label,
+      "data-bs-content": definition,
+    });
+    window.bootstrap?.Popover?.getOrCreateInstance(button);
+    return button;
+  }
+
+  document.querySelectorAll('[data-bs-toggle="popover"]').forEach((node) => {
+    window.bootstrap?.Popover?.getOrCreateInstance(node);
+  });
+
   window.AphasiaEval = Object.freeze({
     api,
     clearAlert,
@@ -142,6 +162,7 @@
     formatCurrency,
     formatDate,
     formatNumber,
+    helpButton,
     jsonText,
     showAlert,
     statusBadge,

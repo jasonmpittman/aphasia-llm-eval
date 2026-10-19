@@ -22,6 +22,7 @@
         <nav class="sidebar-nav" aria-label="Primary navigation">
           <a class="sidebar-link{% if page_name == 'select' %} active{% endif %}"{% if page_name == 'select' %} aria-current="page"{% endif %} href="{{ url_for('web.index') }}" title="New evaluation"><span class="nav-glyph" aria-hidden="true">+</span><span class="sidebar-label">New evaluation</span></a>
           <a class="sidebar-link{% if page_name == 'history' %} active{% endif %}"{% if page_name == 'history' %} aria-current="page"{% endif %} href="{{ url_for('web.history') }}" title="Run history"><span class="nav-glyph" aria-hidden="true">H</span><span class="sidebar-label">Run history</span></a>
+          <a class="sidebar-link{% if page_name == 'guide' %} active{% endif %}"{% if page_name == 'guide' %} aria-current="page"{% endif %} href="{{ url_for('web.guide') }}" title="How to read results"><span class="nav-glyph" aria-hidden="true">?</span><span class="sidebar-label">Guide &amp; glossary</span></a>
           {% if page_name == 'run' %}<a class="sidebar-link active" aria-current="page" href="{{ url_for('web.run_page', run_id=run_id) }}" title="Current run"><span class="nav-glyph" aria-hidden="true">R</span><span class="sidebar-label">Current run</span></a>{% endif %}
         </nav>
         <div class="sidebar-spacer"></div>
@@ -29,14 +30,14 @@
           <span class="safety-icon" aria-hidden="true">!</span>
           <span class="sidebar-label"><strong>Research only</strong><small>Never submit PHI or identifiable data.</small></span>
         </div>
-        <div class="sidebar-version sidebar-label">v0.1 beta track</div>
+        <div class="sidebar-version sidebar-label">v0.2 beta track</div>
       </aside>
       <button id="sidebar-scrim" class="sidebar-scrim" type="button" aria-label="Close navigation" tabindex="-1"></button>
       <div class="app-canvas">
         <header class="utility-header">
           <div class="utility-left">
             <button id="sidebar-toggle" class="utility-icon-button" type="button" aria-controls="app-sidebar" aria-expanded="true" aria-label="Collapse navigation"><span aria-hidden="true">☰</span></button>
-            <div class="utility-context"><span>Evaluation workspace</span><strong>{% if page_name == 'select' %}New run{% elif page_name == 'history' %}History{% else %}Run detail{% endif %}</strong></div>
+            <div class="utility-context"><span>Evaluation workspace</span><strong>{% if page_name == 'select' %}New run{% elif page_name == 'history' %}History{% elif page_name == 'guide' %}Guide &amp; glossary{% else %}Run detail{% endif %}</strong></div>
           </div>
           <div class="utility-actions"><span class="utility-chip"><span class="utility-dot" aria-hidden="true"></span>Local workspace</span>{% if page_name != 'select' %}<a class="btn btn-sm btn-primary" href="{{ url_for('web.index') }}">New evaluation</a>{% endif %}</div>
         </header>

@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from .classification import EXTRA_LABEL, INVALID_LABEL, classification_summary
 from .numeric_fields import NumericFieldsComparator
+
+CIU_LABELS = ("not_word", "not_ciu", "ciu")
 
 
 class CIUTokenLabelsComparator:
@@ -34,11 +37,16 @@ class CIUTokenLabelsComparator:
         ciu_not_word = sorted(model_cius - model_words)
 
         token_details = []
+        classification_observations: list[tuple[str, str]] = []
         agreements = 0
         word_agreements = 0
         for index in range(1, token_count + 1):
             gold_label = _label(index, gold_words, gold_cius)
             model_label = _label(index, model_words, model_cius)
+            classification_label = (
+                INVALID_LABEL if index in model_cius - model_words else model_label
+            )
+            classification_observations.append((gold_label, classification_label))
             agreed = gold_label == model_label
             word_agreed = (index in gold_words) == (index in model_words)
             agreements += int(agreed)
@@ -53,9 +61,18 @@ class CIUTokenLabelsComparator:
                 }
             )
 
+        for index in out_of_range:
+            classification_label = (
+                INVALID_LABEL
+                if index in model_cius - model_words
+                else _label(index, model_words, model_cius)
+            )
+            classification_observations.append((EXTRA_LABEL, classification_label))
+
         token_label_agreement = agreements / token_count if token_count else None
         word_label_agreement = word_agreements / token_count if token_count else None
         annotations_valid = not out_of_range and not ciu_not_word
+        classification = classification_summary(CIU_LABELS, classification_observations)
         matched = bool(numeric_matched and annotations_valid and token_label_agreement == 1.0)
         details = {
             **numeric_details,
@@ -65,12 +82,14 @@ class CIUTokenLabelsComparator:
             "word_label_agreement": word_label_agreement,
             "out_of_range_indices": out_of_range,
             "ciu_not_word_indices": ciu_not_word,
+            "classification": classification,
         }
         statistics = {
             **numeric_statistics,
             "token_label_agreement": token_label_agreement,
             "word_label_agreement": word_label_agreement,
             "alignment_problem": not annotations_valid,
+            "classification": classification,
         }
         return details, matched, statistics
 
@@ -109,6 +128,7 @@ class CIUTokenLabelsComparator:
                 "identity_line": True,
             },
             "token_annotations": True,
+            "classification_labels": list(CIU_LABELS),
         }
 
 

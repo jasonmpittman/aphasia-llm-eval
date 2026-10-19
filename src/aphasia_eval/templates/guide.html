@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Guide & glossary · aphasia-llm-eval{% endblock %}
+{% block content %}
+<main id="main-content" class="container-xl page-shell guide-page">
+  <section class="guide-hero bento-card">
+    <div><p class="eyebrow">Plain-language reference</p><h1>How to read an evaluation</h1><p class="lead">Start with whether a model returned usable answers, then examine agreement with the verified reference, and only then compare time and estimated cost.</p></div>
+    <aside class="guide-safety" role="note"><strong>Research evaluation only</strong><p>This app measures agreement with configured gold files. It does not establish clinical validity and must not be used for diagnosis or treatment decisions.</p></aside>
+  </section>
+
+  <nav class="guide-jump bento-card" aria-label="Guide sections">
+    <strong>Jump to</strong>
+    <a href="#workflow">Evaluation workflow</a><a href="#clinical-terms">Clinical terms</a><a href="#agreement">Agreement metrics</a><a href="#reports">Reading reports</a><a href="#experiments">Experiments</a><a href="#troubleshooting">Troubleshooting</a>
+  </nav>
+
+  <div class="guide-grid">
+    <section id="workflow" class="guide-section bento-card">
+      <p class="section-kicker">Start here</p><h2>Evaluation workflow</h2>
+      <ol class="guide-steps">
+        <li><strong>Choose models and tasks.</strong><span>Every selected model receives the same task prompt and gold items.</span></li>
+        <li><strong>Run the evaluation.</strong><span>The app records model output, errors, tokens, time, and estimated cost.</span></li>
+        <li><strong>Compare with the reference.</strong><span>Deterministic code compares parsed answers with the verified gold file. No second model judges the answer.</span></li>
+        <li><strong>Interpret in layers.</strong><span>Check response coverage, task results, label-level errors, and efficiency—in that order.</span></li>
+      </ol>
+    </section>
+
+    <section id="clinical-terms" class="guide-section bento-card">
+      <p class="section-kicker">Task concepts</p><h2>Clinical-language terms</h2>
+      <dl class="guide-glossary">
+        <div><dt>Word</dt><dd>A token counted as an intelligible lexical word under the CIU task rules. Filled pauses such as “um” and “uh” are excluded.</dd></div>
+        <div><dt>Not word</dt><dd>A fixed transcript token excluded from the word count, such as a non-lexical filled pause.</dd></div>
+        <div><dt>Correct Information Unit (CIU)</dt><dd>A counted word that is intelligible in context, accurate about the stimulus or topic, and relevant and informative under the configured rules.</dd></div>
+        <div><dt>Word, not CIU</dt><dd>An intelligible word that counts toward total words but does not satisfy the configured CIU criteria.</dd></div>
+        <div><dt>Part of speech (POS)</dt><dd>A grammatical category assigned to a token, such as NOUN, VERB, PRON, or CCONJ. This project uses the task's declared UPOS tagset.</dd></div>
+        <div><dt>Gold file</dt><dd>The clinically reviewed reference answer used for comparison. “Gold” means the configured benchmark—not an infallible universal truth.</dd></div>
+      </dl>
+    </section>
+
+    <section id="agreement" class="guide-section bento-card guide-section-wide">
+      <p class="section-kicker">M8 metrics</p><h2>Agreement metrics</h2>
+      <div class="guide-definition-grid">
+        <article><h3>Raw token agreement</h3><p>The share of reference token positions assigned exactly the same label by the model. It can look high when a common label dominates.</p></article>
+        <article><h3>Precision</h3><p>Of the tokens the model assigned a label, how many truly had that label? Low precision means the model over-applied it.</p></article>
+        <article><h3>Recall</h3><p>Of the reference tokens that had a label, how many did the model find? Low recall means the model missed it.</p></article>
+        <article><h3>F1</h3><p>A balance of precision and recall. It is high only when both are high. F1 is reported separately for each label.</p></article>
+        <article><h3>Support</h3><p>The number of reference tokens carrying that label. Treat metrics based on very small support cautiously.</p></article>
+        <article><h3>Macro average</h3><p>The simple average across labels with a defined metric. Each label receives equal weight regardless of frequency. It is not a cross-task score.</p></article>
+        <article><h3>Confusion matrix</h3><p>Rows are gold labels and columns are model predictions. Diagonal cells are correct; off-diagonal cells show which labels were confused.</p></article>
+        <article><h3>Mean and SD across repetitions</h3><p>The mean summarizes repeated runs; standard deviation (SD) shows how much they varied. One repetition cannot estimate variability.</p></article>
+      </div>
+      <div class="guide-note" role="note"><strong>Undefined values:</strong> “n/a” means the denominator did not exist—for example, a label absent from both gold and predictions. If a gold label exists but the model never predicts it, precision is reported as 0.</div>
+    </section>
+
+    <section id="reports" class="guide-section bento-card">
+      <p class="section-kicker">Interpretation order</p><h2>How to read the report</h2>
+      <ol class="guide-steps compact">
+        <li><strong>Coverage first.</strong><span>Review errors, parse failures, truncation, and comparable-response rate.</span></li>
+        <li><strong>Use the task headline.</strong><span>Lower count error is favorable for CIU; higher token agreement is favorable for POS.</span></li>
+        <li><strong>Inspect labels.</strong><span>Precision, recall, F1, and the confusion matrix reveal errors hidden by an overall number.</span></li>
+        <li><strong>Check repetitions and support.</strong><span>Prefer stable patterns supported by enough tokens and items.</span></li>
+        <li><strong>Then compare efficiency.</strong><span>Latency and estimated cost matter only after confirming usable performance.</span></li>
+      </ol>
+      <p class="guide-footnote">Compare models only within the same task, prompt, gold data, and experimental condition. The app intentionally does not create a single score across unlike tasks.</p>
+    </section>
+
+    <section id="experiments" class="guide-section bento-card">
+      <p class="section-kicker">Ablation studies</p><h2>Experiments and “best observed”</h2>
+      <p>An ablation run changes one setting—currently maximum output tokens—while keeping the other settings fixed. The baseline is the ordinary configuration.</p>
+      <p>“Best observed” is exploratory because it is selected on the same gold items shown in the report. For defensible model selection, choose settings on development items and report performance on separate held-out items.</p>
+    </section>
+
+    <section id="troubleshooting" class="guide-section bento-card guide-section-wide">
+      <p class="section-kicker">When results look empty</p><h2>Troubleshooting</h2>
+      <div class="guide-definition-grid">
+        <article><h3>Error</h3><p>The gateway request failed or returned an unsupported response shape. Open the Items tab for the recorded diagnostic.</p></article>
+        <article><h3>Parse failure</h3><p>The model returned text, but it did not contain a valid answer matching the task's JSON schema.</p></article>
+        <article><h3>Alignment problem</h3><p>The answer omitted, duplicated, or added token indices. Special confusion-matrix buckets keep these failures visible.</p></article>
+        <article><h3>Truncated response</h3><p>The model reached its output-token limit. Increase maximum output tokens or use an ablation study to test suitable limits.</p></article>
+      </div>
+    </section>
+  </div>
+</main>
+{% endblock %}

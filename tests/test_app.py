@@ -74,7 +74,14 @@ def test_frontend_pages_render_without_inline_scripts(client):
     assert b"Run history" in history.data
     assert b'id="history-body"' in history.data
 
-    for page in (response, run_page, history):
+    guide = client.get("/guide", headers={"Host": "localhost:5000"})
+    assert guide.status_code == 200
+    assert b"How to read an evaluation" in guide.data
+    assert b"Confusion matrix" in guide.data
+    assert b"Precision" in guide.data
+    assert b"Research evaluation only" in guide.data
+
+    for page in (response, run_page, history, guide):
         html = page.get_data(as_text=True)
         assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html)
         assert 'href="#main-content"' in html

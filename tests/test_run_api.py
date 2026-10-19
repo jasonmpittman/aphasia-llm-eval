@@ -83,6 +83,12 @@ def test_model_and_task_discovery(app, client):
     assert all(task["enabled"] and task["gold_status"] == "found" for task in tasks)
     assert [task["item_count"] for task in tasks] == [5, 5]
     assert tasks[0]["view_descriptor"]["type"] == "ciu_token_labels"
+    assert tasks[0]["view_descriptor"]["classification_labels"] == [
+        "not_word",
+        "not_ciu",
+        "ciu",
+    ]
+    assert "NOUN" in tasks[1]["view_descriptor"]["classification_labels"]
 
 
 def test_degraded_health_and_missing_gold_status(app, client, fake_litellm, tmp_path):
@@ -160,6 +166,15 @@ def test_full_run_with_success_error_and_parse_failure(client, fake_litellm):
     assert aggregates[("good-model", "mean_abs_diff", "ciu_count")]["value"] == 0.5
     assert aggregates[("good-model", "headline", "ciu_count")]["value"] == 0.5
     assert aggregates[("good-model", "headline_stddev", "ciu_count")]["value"] == 0
+    assert aggregates[("good-model", "classification_repetitions", None)]["value"] == 2
+    assert aggregates[("good-model", "support", "ciu")]["value"] > 0
+    assert aggregates[("good-model", "f1", "ciu")]["value"] is not None
+    assert aggregates[("good-model", "f1_repetition_mean", "ciu")]["n"] == 2
+    assert aggregates[("good-model", "f1_repetition_stddev", "ciu")]["value"] == 0
+    assert any(
+        entry["model_id"] == "good-model" and entry["stat_name"] == "confusion"
+        for entry in detail["aggregates"]
+    )
     assert aggregates[("good-model", "estimated_cost_usd", None)]["value"] == 0.004
     assert aggregates[("bad-json", "parse_failures", None)]["value"] == 4
     assert aggregates[("error-model", "errors", None)]["value"] == 4

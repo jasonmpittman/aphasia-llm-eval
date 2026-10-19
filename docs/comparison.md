@@ -67,6 +67,33 @@ disagreements. It reports token agreement, alignment status, category counts
 and proportions, and signed count differences. Raw agreement is not
 chance-corrected.
 
+### Label-level agreement
+
+Both token-label comparators also build a multiclass confusion matrix. Rows are
+gold labels and columns are model predictions. Missing, invalid, duplicate,
+and extra token-index outputs use explicit special buckets, so alignment
+problems cannot disappear from the label metrics.
+
+For every declared CIU or POS label, aggregates report:
+
+- **precision:** correct uses of the label divided by all model uses;
+- **recall:** correct uses divided by all gold instances;
+- **F1:** the harmonic mean of precision and recall;
+- **support:** the number of gold instances.
+
+If a label occurs in gold but the model never predicts it, precision is zero.
+A metric is `null` only when its denominator is absent, such as a label missing
+from both gold and predictions. Macro values average the labels for which that
+metric is defined; they remain task-specific and are never combined into a
+cross-task score.
+
+The primary label metrics pool all comparable token decisions within one
+model/task/condition group. When a run has multiple repetitions, the service
+also computes each repetition independently and stores the per-label mean and
+population standard deviation for precision, recall, and F1. Parse failures
+and request errors are excluded from label metrics but remain visible in
+coverage and failure aggregates.
+
 ## Comparator plugin contract
 
 A new answer shape requires a class with a stable `name` and three methods:

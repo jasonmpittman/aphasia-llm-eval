@@ -2,11 +2,28 @@
   "use strict";
 
   if (document.body.dataset.page !== "run") return;
-  const {api, clearAlert, element, formatCurrency, formatDate, formatNumber, jsonText, showAlert, statusBadge} = window.AphasiaEval;
+  const {api, clearAlert, element, formatCurrency, formatDate, formatNumber, helpButton, jsonText, showAlert, statusBadge} = window.AphasiaEval;
   const root = document.getElementById("main-content");
   const runId = root.dataset.runId;
   const alertNode = document.getElementById("run-alert");
   const terminalStatuses = new Set(["completed", "cancelled", "failed", "interrupted"]);
+  const metricDefinitions = {
+    precision: "Of the tokens assigned this label by the model, the share whose gold label matches.",
+    recall: "Of the gold tokens with this label, the share the model assigned correctly.",
+    f1: "The harmonic mean of precision and recall. It is high only when both are high.",
+    support: "The number of gold tokens carrying this label.",
+    macroF1: "The simple average of defined label-level F1 values. Each label receives equal weight.",
+    agreement: "The share of reference token positions where the model and gold labels match exactly.",
+    confusion: "Gold labels are rows and model predictions are columns. Diagonal cells are correct; off-diagonal cells are errors.",
+    latency: "Time from sending a request until its complete response arrives. M8 does not yet measure time to first token.",
+    p95: "A tail-latency estimate: about 95% of observed requests completed at or below this duration.",
+  };
+  const specialLabelNames = {
+    __missing__: "Missing prediction",
+    __invalid__: "Invalid prediction",
+    __duplicate__: "Duplicate prediction",
+    __extra__: "Extra token index",
+  };
   const state = {
     detail: null,
     items: [],
@@ -32,8 +49,12 @@
     return "baseline";
   }
 
+  function aggregateEntry(modelId, taskId, name, field = null, conditionId = activeCondition(modelId, taskId)) {
+    return state.detail.aggregates.find((value) => value.model_id === modelId && value.task_id === taskId && value.condition_id === conditionId && value.stat_name === name && value.field === field) || null;
+  }
+
   function aggregate(modelId, taskId, name, field = null, conditionId = activeCondition(modelId, taskId)) {
-    return state.detail.aggregates.find((value) => value.model_id === modelId && value.task_id === taskId && value.condition_id === conditionId && value.stat_name === name && value.field === field)?.value ?? null;
+    return aggregateEntry(modelId, taskId, name, field, conditionId)?.value ?? null;
   }
 
   function taskTitle(taskId) {
@@ -88,10 +109,12 @@
     state.lastFinished = state.detail.progress.finished;
   }
 
-  function metricCard(label, value, detail = "") {
+  function metricCard(label, value, detail = "", definition = "") {
+    const labelNode = element("span", {className: "metric-label"}, [label]);
+    if (definition) labelNode.append(helpButton(label, definition));
     return element("div", {className: "col-sm-6 col-xl-3"}, [
       element("article", {className: "metric-card"}, [
-        element("span", {className: "metric-label", text: label}),
+        labelNode,
         element("strong", {className: "metric-value", text: value}),
         detail ? element("span", {className: "small text-secondary", text: detail}) : null,
       ]),
@@ -188,16 +211,18 @@
     });
     const columns = [
       ["model_id", "Model"], ["task_id", "Task"], ["input", "Input tokens"], ["output", "Output tokens"],
-      ["cost", "Estimated cost"], ["elapsed", "Total time"], ["mean", "Mean latency"], ["p95", "P95 latency"],
+      ["cost", "Estimated cost"], ["elapsed", "Total time"], ["mean", "Mean latency", metricDefinitions.latency], ["p95", "P95 latency", metricDefinitions.p95],
     ];
     const table = element("table", {className: "table align-middle"});
     const head = element("tr");
-    columns.forEach(([columnKey, label]) => {
+    columns.forEach(([columnKey, label, definition]) => {
       const button = element("button", {className: "sort-button", type: "button", text: label, onclick: () => {
         state.efficiencySort = {key: columnKey, ascending: key === columnKey ? !ascending : true};
         renderEfficiency();
       }});
-      head.append(element("th", {scope: "col"}, button));
+      const heading = element("th", {scope: "col"}, button);
+      if (definition) heading.append(helpButton(label, definition));
+      head.append(heading);
     });
     const body = element("tbody");
     rows.forEach((row) => {
@@ -274,6 +299,8 @@
       rows.forEach((item) => Object.entries(item.comparison.details.fields).forEach(([field, detail]) => body.append(element("tr", {}, [element("th", {scope: "row", text: item.item_id}), element("td", {text: field}), element("td", {text: formatNumber(detail.model, 3)}), element("td", {text: formatNumber(detail.gold, 3)}), element("td", {text: formatNumber(detail.difference, 3)})]))));
       table.append(element("thead", {}, head), body);
       block.append(element("div", {className: "table-responsive"}, table));
+      const agreement = renderAgreementSection(model, taskId);
+      if (agreement) block.append(agreement);
       appendFailureNotice(block, failedItems(model, taskId));
       container.append(block);
     });
@@ -301,9 +328,9 @@
       const block = element("section", {className: "detail-model-block"}, [
         element("h3", {className: "h5", text: model}),
         element("div", {className: "row g-3 mb-3"}, [
-          metricCard("Mean token agreement", agreement === null ? "n/a" : `${formatNumber(agreement * 100, 1)}%`).firstChild,
-          metricCard("Alignment problems", `${alignment} / ${rows.length}`).firstChild,
-          metricCard("Derived ratios", ratioValues.length ? jsonText(ratioValues[0]) : "n/a").firstChild,
+          metricCard("Mean token agreement", agreement === null ? "n/a" : `${formatNumber(agreement * 100, 1)}%`),
+          metricCard("Alignment problems", `${alignment} / ${rows.length}`),
+          metricCard("Derived ratios", ratioValues.length ? jsonText(ratioValues[0]) : "n/a"),
         ]),
       ]);
       const table = element("table", {className: "table align-middle"});
@@ -318,6 +345,8 @@
       tagset.forEach((tag) => body.append(element("tr", {}, [element("th", {scope: "row", text: tag}), element("td", {text: modelCounts[tag]}), element("td", {text: goldCounts[tag]}), element("td", {text: modelCounts[tag] - goldCounts[tag]})])));
       table.append(element("thead", {}, element("tr", {}, [element("th", {scope: "col", text: "Category"}), element("th", {scope: "col", text: "Model count"}), element("th", {scope: "col", text: "Gold count"}), element("th", {scope: "col", text: "Signed difference"})])), body);
       block.append(element("div", {className: "table-responsive"}, table));
+      const agreementPanel = renderAgreementSection(model, taskId);
+      if (agreementPanel) block.append(agreementPanel);
       appendFailureNotice(block, failedItems(model, taskId));
       container.append(block);
       const colors = chartColors();
@@ -329,6 +358,135 @@
       container.prepend(panel);
       state.detailChart = new Chart(panel.querySelector("canvas"), {type: "bar", data: {labels: tagset, datasets: chartDatasets}, options: {responsive: true, maintainAspectRatio: false, scales: {y: {beginAtZero: true}}}});
     }
+  }
+
+  function displayLabel(label) {
+    if (specialLabelNames[label]) return specialLabelNames[label];
+    if (label === "not_word") return "Not word";
+    if (label === "not_ciu") return "Word, not CIU";
+    if (label === "ciu") return "CIU";
+    return label;
+  }
+
+  function metricHeading(label, definition) {
+    const heading = element("th", {scope: "col"}, [label]);
+    if (definition) heading.append(helpButton(label, definition));
+    return heading;
+  }
+
+  function formatPercent(value) {
+    return value === null ? "n/a" : `${formatNumber(value * 100, 1)}%`;
+  }
+
+  function classificationAggregates(modelId, taskId, statName) {
+    const conditionId = activeCondition(modelId, taskId);
+    return state.detail.aggregates.filter((entry) => entry.model_id === modelId && entry.task_id === taskId && entry.condition_id === conditionId && entry.stat_name === statName);
+  }
+
+  function renderAgreementSection(modelId, taskId) {
+    const declaredLabels = state.taskMeta.get(taskId)?.view_descriptor?.classification_labels || [];
+    if (!declaredLabels.length || aggregate(modelId, taskId, "classification_observations") === null) return null;
+    const confusionEntries = classificationAggregates(modelId, taskId, "confusion");
+    const predictedLabels = new Set(confusionEntries.map((entry) => entry.field?.split(" → ")[1]).filter(Boolean));
+    const labels = declaredLabels.filter((label) => (aggregate(modelId, taskId, "support", label) || 0) > 0 || predictedLabels.has(label));
+    const rawAgreementName = taskId === "ciu_scoring" ? "token_label_agreement" : "token_agreement";
+    const section = element("section", {className: "agreement-section", "aria-label": `${modelId} label agreement`});
+    section.append(element("div", {className: "agreement-heading"}, [
+      element("div", {}, [
+        element("h4", {className: "h6 mb-0", text: "Per-label agreement"}),
+        element("p", {text: "Pooled token decisions for the selected condition. Failed or unparseable jobs are excluded."}),
+      ]),
+      element("a", {href: "/guide#agreement", className: "small", text: "How to read these metrics"}),
+    ]));
+    section.append(element("div", {className: "row g-3 mb-3"}, [
+      metricCard("Raw agreement", formatPercent(aggregate(modelId, taskId, rawAgreementName)), "Exact token-label matches", metricDefinitions.agreement),
+      metricCard("Macro F1", formatPercent(aggregate(modelId, taskId, "macro_f1")), "Equal weight per represented label", metricDefinitions.macroF1),
+      metricCard("Token decisions", formatNumber(aggregate(modelId, taskId, "classification_observations"), 0), "Includes explicit alignment-error buckets"),
+    ]));
+
+    const table = element("table", {className: "table align-middle agreement-table"});
+    table.append(element("thead", {}, element("tr", {}, [
+      element("th", {scope: "col", text: "Label"}),
+      metricHeading("Precision", metricDefinitions.precision),
+      metricHeading("Recall", metricDefinitions.recall),
+      metricHeading("F1", metricDefinitions.f1),
+      metricHeading("Support", metricDefinitions.support),
+    ])));
+    const body = element("tbody");
+    labels.forEach((label) => body.append(element("tr", {}, [
+      element("th", {scope: "row", text: displayLabel(label)}),
+      element("td", {text: formatPercent(aggregate(modelId, taskId, "precision", label))}),
+      element("td", {text: formatPercent(aggregate(modelId, taskId, "recall", label))}),
+      element("td", {text: formatPercent(aggregate(modelId, taskId, "f1", label))}),
+      element("td", {text: formatNumber(aggregate(modelId, taskId, "support", label), 0)}),
+    ])));
+    table.append(body);
+    section.append(element("div", {className: "table-responsive"}, table));
+    const matrix = renderConfusionMatrix(declaredLabels, confusionEntries);
+    if (matrix) section.append(matrix);
+    const repetitions = aggregate(modelId, taskId, "classification_repetitions");
+    if (repetitions > 1) section.append(renderRepetitionSummary(modelId, taskId, labels, repetitions));
+    return section;
+  }
+
+  function renderConfusionMatrix(declaredLabels, entries) {
+    if (!entries.length) return null;
+    const pairs = entries.map((entry) => {
+      const [gold, predicted] = entry.field.split(" → ");
+      return {gold, predicted, value: entry.value};
+    });
+    const order = [...declaredLabels, "__missing__", "__invalid__", "__duplicate__", "__extra__"];
+    const rank = (label) => {
+      const index = order.indexOf(label);
+      return index < 0 ? order.length : index;
+    };
+    const goldLabels = [...new Set(pairs.map((pair) => pair.gold))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+    const predictedLabels = [...new Set(pairs.map((pair) => pair.predicted))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+    const lookup = new Map(pairs.map((pair) => [`${pair.gold}\u0000${pair.predicted}`, pair.value]));
+    const table = element("table", {className: "table confusion-table"});
+    table.append(element("thead", {}, element("tr", {}, [
+      element("th", {scope: "col", text: "Gold ↓ / Model →"}),
+      ...predictedLabels.map((label) => element("th", {scope: "col", text: displayLabel(label)})),
+    ])));
+    const body = element("tbody");
+    goldLabels.forEach((gold) => body.append(element("tr", {}, [
+      element("th", {scope: "row", text: displayLabel(gold)}),
+      ...predictedLabels.map((predicted) => element("td", {
+        className: gold === predicted ? "confusion-diagonal" : "",
+        text: formatNumber(lookup.get(`${gold}\u0000${predicted}`) || 0, 0),
+      })),
+    ])));
+    table.append(body);
+    return element("div", {className: "confusion-wrap"}, [
+      element("h5", {className: "h6"}, ["Confusion matrix", helpButton("Confusion matrix", metricDefinitions.confusion)]),
+      element("div", {className: "table-responsive"}, table),
+    ]);
+  }
+
+  function renderRepetitionSummary(modelId, taskId, labels, repetitions) {
+    const table = element("table", {className: "table agreement-table"});
+    table.append(element("thead", {}, element("tr", {}, [
+      element("th", {scope: "col", text: "Label"}),
+      element("th", {scope: "col", text: "Precision mean ± SD"}),
+      element("th", {scope: "col", text: "Recall mean ± SD"}),
+      element("th", {scope: "col", text: "F1 mean ± SD"}),
+    ])));
+    const body = element("tbody");
+    labels.forEach((label) => {
+      const cells = [element("th", {scope: "row", text: displayLabel(label)})];
+      ["precision", "recall", "f1"].forEach((metric) => {
+        const mean = aggregate(modelId, taskId, `${metric}_repetition_mean`, label);
+        const deviation = aggregate(modelId, taskId, `${metric}_repetition_stddev`, label);
+        cells.push(element("td", {text: mean === null ? "n/a" : `${formatPercent(mean)} ± ${formatPercent(deviation)}`}));
+      });
+      body.append(element("tr", {}, cells));
+    });
+    table.append(body);
+    return element("details", {className: "repetition-details"}, [
+      element("summary", {text: `Stability across ${formatNumber(repetitions, 0)} comparable repetitions`}),
+      element("p", {text: "Mean summarizes repeated runs; SD shows variability. Undefined label metrics are omitted from that metric's repetition summary."}),
+      element("div", {className: "table-responsive"}, table),
+    ]);
   }
 
   function appendFailureNotice(container, failures) {

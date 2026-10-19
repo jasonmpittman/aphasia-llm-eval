@@ -45,7 +45,7 @@ def test_json_export_contains_complete_versioned_run_without_secret(client):
     assert f"aphasia-eval-{run_id}.json" in response.headers["Content-Disposition"]
     assert b"unit-test-placeholder" not in response.data
     document = json.loads(response.data)
-    assert document["schema_version"] == 2
+    assert document["schema_version"] == 3
     assert document["run"]["id"] == run_id
     assert document["run"]["label"] == "M5 synthetic export"
     assert document["run"]["status"] == "completed"
@@ -95,15 +95,35 @@ def test_xlsx_export_has_required_sheets_and_rows(client):
     )
     assert b"unit-test-placeholder" not in response.data
     workbook = load_workbook(io.BytesIO(response.data), read_only=True, data_only=True)
-    assert workbook.sheetnames == ["Summary", "Efficiency", "Items", "Run Info"]
+    assert workbook.sheetnames == [
+        "Summary",
+        "Efficiency",
+        "Agreement",
+        "Confusion",
+        "Items",
+        "Run Info",
+    ]
     assert workbook["Items"].max_row == 9
     assert workbook["Efficiency"].max_row == 5
+    assert workbook["Agreement"].max_row > 1
+    assert workbook["Confusion"].max_row > 1
     item_headers = [cell.value for cell in next(workbook["Items"].iter_rows())]
     assert "tokens_estimated" in item_headers
     assert "estimated_cost_usd" in item_headers
     summary_values = [cell.value for row in workbook["Summary"].iter_rows() for cell in row]
     assert "Research evaluation only; not a clinical tool." in summary_values
     assert "All cost values are estimated." in summary_values
+    agreement_headers = [cell.value for cell in next(workbook["Agreement"].iter_rows())]
+    assert agreement_headers[:8] == [
+        "Model",
+        "Task",
+        "Condition",
+        "Label",
+        "Precision",
+        "Recall",
+        "F1",
+        "Support",
+    ]
     workbook.close()
 
 

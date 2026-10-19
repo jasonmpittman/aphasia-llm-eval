@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy import delete, select
 
+from aphasia_eval.comparison.classification import classification_from_confusion
 from aphasia_eval.db import Aggregate, Database, Result, RunModel
 from aphasia_eval.services.ablation import result_experiment
 from aphasia_eval.services.task_loader import TaskDefinition
@@ -134,8 +135,10 @@ def _aggregate_group(results: Sequence[Result], task: Mapping[str, Any]) -> list
             values.append(
                 AggregateValue("token_label_agreement", _mean(agreements), len(agreements))
             )
+            values.extend(_classification_values(comparable, ("not_word", "not_ciu", "ciu")))
     elif comparison_type == "token_tags":
         values.extend(_token_values(comparable, task))
+        values.extend(_classification_values(comparable, tuple(task.get("tagset", ()))))
 
     headline_values = _headline_by_repetition(comparable, task)
     headline_field = task["headline"].get("field")
@@ -237,6 +240,138 @@ def _token_values(results: Sequence[Result], task: Mapping[str, Any]) -> list[Ag
             )
         )
     return values
+
+
+def _classification_values(
+    results: Sequence[Result], labels: Sequence[str]
+) -> list[AggregateValue]:
+    classifications = [
+        classification
+        for result in results
+        if (classification := _result_classification(result)) is not None
+    ]
+    if not classifications:
+        return []
+    pooled = classification_from_confusion(labels, _sum_confusions(classifications))
+    values = _classification_summary_values(pooled, len(classifications))
+
+    by_repetition: dict[int, list[Mapping[str, Any]]] = defaultdict(list)
+    for result in results:
+        classification = _result_classification(result)
+        if classification is None:
+            continue
+        repetition = result_experiment(result.comparison_json, result.repetition)["repetition"]
+        by_repetition[int(repetition)].append(classification)
+    repetition_summaries = [
+        classification_from_confusion(labels, _sum_confusions(group))
+        for group in by_repetition.values()
+    ]
+    values.append(
+        AggregateValue(
+            "classification_repetitions",
+            float(len(repetition_summaries)),
+            len(repetition_summaries),
+        )
+    )
+    for label in labels:
+        for metric in ("precision", "recall", "f1"):
+            observations = [
+                float(value)
+                for summary in repetition_summaries
+                if (value := summary["per_label"][label][metric]) is not None
+            ]
+            values.append(
+                AggregateValue(
+                    f"{metric}_repetition_mean", _mean(observations), len(observations), label
+                )
+            )
+            if len(observations) > 1:
+                values.append(
+                    AggregateValue(
+                        f"{metric}_repetition_stddev",
+                        statistics.pstdev(observations),
+                        len(observations),
+                        label,
+                    )
+                )
+    return values
+
+
+def _classification_summary_values(
+    summary: Mapping[str, Any], result_count: int
+) -> list[AggregateValue]:
+    values = [
+        AggregateValue(
+            "classification_observations",
+            float(summary["observations"]),
+            result_count,
+        )
+    ]
+    for metric, value in summary["macro"].items():
+        defined = sum(
+            label_metrics[metric] is not None for label_metrics in summary["per_label"].values()
+        )
+        values.append(
+            AggregateValue(
+                f"macro_{metric}",
+                float(value) if value is not None else None,
+                defined,
+            )
+        )
+    for label, metrics in summary["per_label"].items():
+        for metric in ("precision", "recall", "f1"):
+            value = metrics[metric]
+            values.append(
+                AggregateValue(
+                    metric,
+                    float(value) if value is not None else None,
+                    int(
+                        metrics["predicted_count"] if metric == "precision" else metrics["support"]
+                    ),
+                    label,
+                )
+            )
+        values.append(AggregateValue("support", float(metrics["support"]), result_count, label))
+    for gold_label, row in summary["confusion_matrix"].items():
+        for predicted_label, count in row.items():
+            if count:
+                values.append(
+                    AggregateValue(
+                        "confusion",
+                        float(count),
+                        result_count,
+                        f"{gold_label} → {predicted_label}",
+                    )
+                )
+    return values
+
+
+def _result_classification(result: Result) -> Mapping[str, Any] | None:
+    comparison = result.comparison_json
+    if not isinstance(comparison, Mapping):
+        return None
+    statistics_value = comparison.get("statistics")
+    if not isinstance(statistics_value, Mapping):
+        return None
+    classification = statistics_value.get("classification")
+    return classification if isinstance(classification, Mapping) else None
+
+
+def _sum_confusions(
+    classifications: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, int]]:
+    totals: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for classification in classifications:
+        confusion = classification.get("confusion_matrix", {})
+        if not isinstance(confusion, Mapping):
+            continue
+        for gold_label, row in confusion.items():
+            if not isinstance(row, Mapping):
+                continue
+            for predicted_label, count in row.items():
+                if isinstance(count, int | float) and not isinstance(count, bool):
+                    totals[str(gold_label)][str(predicted_label)] += int(count)
+    return {gold: dict(row) for gold, row in totals.items()}
 
 
 def _headline_by_repetition(results: Sequence[Result], task: Mapping[str, Any]) -> list[float]:

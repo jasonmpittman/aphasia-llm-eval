@@ -28,3 +28,10 @@ def history() -> str:
     """Render locally persisted run history."""
 
     return render_template("history.html", page_name="history")
+
+
+@blueprint.get("/guide")
+def guide() -> str:
+    """Render the plain-language evaluation and report guide."""
+
+    return render_template("guide.html", page_name="guide")

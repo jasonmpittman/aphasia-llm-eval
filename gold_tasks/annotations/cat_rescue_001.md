@@ -6,8 +6,8 @@ audit aid and is not loaded or sent to a model by the application.
 The project maintainer affirmed the item's provenance, permission for project
 use and redistribution, annotation accuracy, and clinical review on October
 13, 2026. The maintainer also confirmed that the transcript is real, fully
-deidentified, free of PHI, and approved for use. The scoring conventions are documented in
-[`ciu_scoring_method.md`](ciu_scoring_method.md).
+deidentified, free of PHI, and approved for use. The scoring conventions are
+documented in [`ciu_scoring_method.md`](ciu_scoring_method.md).
 
 ## Elicitation stimulus
 

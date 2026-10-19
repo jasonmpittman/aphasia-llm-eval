@@ -38,6 +38,15 @@ are for provenance and audit only: the application does not load them or send
 them to a model. Do not use an annotation sidecar to bypass the provenance,
 privacy, or redistribution requirements below.
 
+## Bundled reference status
+
+- `gold_ciu_scoring.txt` contains the maintainer-supplied, clinically reviewed
+  Cat Rescue counts documented in `annotations/cat_rescue_001.md`.
+- `gold_pos_breakdown.txt` contains a provisional development annotation
+  derived from the same transcript. It enables end-to-end POS testing but has
+  not been independently reviewed and is not an authoritative gold standard.
+  See `annotations/cat_rescue_001_pos.md` before interpreting its results.
+
 Before adding any real gold file, maintainers must document its source,
 annotation and verification process, participant-consent and IRB constraints,
 data license, and whether repository redistribution is permitted. Do not commit

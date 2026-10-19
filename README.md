@@ -2,11 +2,11 @@
 
 **Compare a zoo of large language models on aphasia clinical tasks, side by side, through a LiteLLM gateway.**
 
-You choose which models and which tasks to run. The app sends each task to each model, compares every answer with a configured verified gold file, and shows that comparison next to input tokens, output tokens, estimated cost, and time. Results export to CSV, JSON, XLSX, and PDF.
+You choose which models and which tasks to run. The app sends each task to each model, compares every answer with a configured reference file, and shows that comparison next to input tokens, output tokens, estimated cost, and time. Results export to CSV, JSON, XLSX, and PDF.
 
 v0.1 ships two tasks: **Correct Information Unit (CIU) scoring** and **parts-of-speech (POS) breakdown**. Tasks are defined in configuration files, so new benchmarks are added without changing application code in the common case.
 
-> **Status:** v0.1 beta candidate. The application and synthetic demo workflow are implemented. Maintainer-verified gold files and finalized clinical rule text are still required before real evaluation use. Items marked **[Verify]** depend on the target LiteLLM proxy; run `python scripts/check_endpoint.py --model <model-id>` to inspect them.
+> **Status:** v0.1 beta candidate. The application, synthetic demo workflow, and clinically reviewed Cat Rescue CIU reference are implemented. The Cat Rescue POS reference is provisional and must be independently reviewed or replaced before it is treated as an authoritative gold standard. Items marked **[Verify]** depend on the target LiteLLM proxy; run `python scripts/check_endpoint.py --model <model-id>` to inspect them.
 >
 > **Not a clinical tool.** This project evaluates language models for research. It must not be used to diagnose, treat, or make care decisions about any person. Do not send protected health information (PHI) or identifiable patient data to the app. See [Data and privacy](#15-data-and-privacy).
 >
@@ -173,10 +173,10 @@ aphasia-llm-eval/
 │   ├── schema/task.schema.json
 │   ├── ciu_scoring.yaml
 │   └── pos_breakdown.yaml
-├── gold_tasks/                   # Verified gold answers, one file per task
+├── gold_tasks/                   # Reference answers and provenance records
 │   ├── README.md
 │   ├── gold_ciu_scoring.txt      # Supplied by maintainers
-│   ├── gold_pos_breakdown.txt    # Supplied by maintainers
+│   ├── gold_pos_breakdown.txt    # Provisional Cat Rescue UPOS reference
 │   └── examples/                 # Tiny synthetic files for demo mode and tests
 │       ├── gold_ciu_scoring.txt
 │       └── gold_pos_breakdown.txt
@@ -358,7 +358,7 @@ schema_version: 1
 task_id: ciu_scoring
 title: Correct Information Unit (CIU) Scoring
 category: discourse
-version: "0.1.0"
+version: "0.2.0"
 description: >
   The model counts total words and Correct Information Units in a
   transcribed discourse sample.
@@ -426,7 +426,7 @@ schema_version: 1
 task_id: pos_breakdown
 title: Parts-of-Speech Breakdown
 category: morphosyntax
-version: "0.1.0"
+version: "0.2.0"
 description: >
   The model tags each numbered token of a transcript with one part-of-speech
   tag. The app derives the per-category breakdown.
@@ -448,15 +448,29 @@ prompt:
     part-of-speech tagging of speech transcripts from people with aphasia.
     Reply with the requested JSON object and nothing else.
   user_template: |
-    Tag every numbered token with exactly one tag from this list:
+    Tag every numbered token with exactly one Universal Dependencies v2 UPOS
+    tag from this list:
     {tagset}
 
     Rules:
-    - Tag each word as it is used in context, even if the utterance is
+    - Use each word's syntactic role in context, even when the utterance is
       fragmentary or ungrammatical.
-    - <state how to treat fillers, false starts, neologisms, and unintelligible
-      tokens, matching the conventions behind the gold file>
-    - Do not merge, split, skip, or reorder tokens.
+    - The numbered tokens are fixed. Do not merge, split, skip, add, or reorder
+      them. Contractions have already been expanded when required by this
+      dataset.
+    - Tag filled pauses such as "um" and "uh" as INTJ.
+    - Tag repetitions, false starts, revisions, and correction attempts by
+      their role at each occurrence.
+    - Infer a neologism's syntactic role when possible; otherwise use X. Tag
+      unintelligible placeholders such as "xxx" as X.
+    - For this English dataset, use PRON for personal, possessive, existential,
+      and relative pronouns; use DET for articles and adnominal quantifiers.
+    - Use AUX for progressive, copular, and existential forms of "be"; use
+      VERB for lexical verbs.
+    - Use PART for infinitival "to" and ADP for prepositional "to". Tag English
+      verbal particles as ADP or ADV according to context, not as PART.
+    - Speaker labels and metadata are excluded. Use PUNCT only for numbered
+      punctuation tokens.
 
     Tokens:
     {numbered_tokens}
@@ -728,7 +742,7 @@ aggregates  -- cached, recomputable from results
 ## 15. Data and privacy
 
 - **No PHI.** Rendered prompts, including transcript text, are sent to the LiteLLM gateway and stored in the local SQLite database along with raw outputs. Treat `instance/` and any exports as sensitive if the transcripts are sensitive. They are git-ignored.
-- **Gold content and redistribution.** Gold files come from maintainer-verified sources. Before publishing the repository, confirm that you have the right to redistribute each gold file's content (participant consent, IRB terms, and dataset license such as TalkBank/AphasiaBank membership terms, where relevant). If you do not, keep the real files out of the repository: set `GOLD_TASKS_DIR` to a folder outside the repo, or add `gold_tasks/gold_*.txt` to `.gitignore`, and publish only `gold_tasks/examples/`.
+- **Reference content and redistribution.** Reference files must disclose whether they are verified or provisional. Before publishing the repository, confirm that you have the right to redistribute each file's content (participant consent, IRB terms, and dataset license such as TalkBank/AphasiaBank membership terms, where relevant). If you do not, keep the real files out of the repository: set `GOLD_TASKS_DIR` to a folder outside the repo, or add `gold_tasks/gold_*.txt` to `.gitignore`, and publish only `gold_tasks/examples/`.
 - **Gateway.** Check where the LiteLLM gateway sends data and whether that is acceptable for your transcripts. This project cannot verify that.
 - **No telemetry.** The app sends nothing anywhere except to the configured LiteLLM endpoint.
 - **Clinical validity.** The app's comparison tells you how closely a model matches the gold files. It does not establish that the gold files, or the models, are clinically valid. Report gold provenance and rater information when publishing results.
@@ -871,7 +885,11 @@ Decisions made in this spec that the maintainers should confirm or correct:
 
 1. **Gold file internals.** The file name `gold_<task_id>.txt` is fixed, but the layout in section 9.1 is a proposal. Supply a few lines of each real gold file so the default parsers can be matched to them.
 2. **CIU granularity.** The task compares counts (`total_words`, `ciu_count`) and derives `percent_ciu`. It does not compare word-level CIU marks. Word-level comparison needs gold with per-word marks. Also unconfirmed: whether the model should count total words itself (current spec) or the app should count them deterministically, which separates counting ability from CIU judgment.
-3. **POS conventions.** Assumed: Universal POS tags, pre-tokenized input taken from the gold file, one tag per token. Conventions for fillers, false starts, neologisms, and unintelligible tokens must be stated in the prompt and must match the gold file.
+3. **POS authority.** The current Cat Rescue POS file uses documented Universal
+   Dependencies v2 conventions and fixed pre-tokenized input, but its labels
+   are a provisional development reference rather than an independently
+   reviewed gold standard. Replace or review it before drawing substantive
+   conclusions from model agreement.
 4. **"No evaluation of returned scoring."** Read as: the model's answer is the scoring or annotation output, and the app does not judge or grade it with another model or composite metric. The app still computes plain differences from gold (section 10), because requirement 6 asks for a comparison with gold. If you want display-only side-by-side results with no computed statistics, the comparators can be switched to a display-only mode.
 5. **LiteLLM details [Verify].** Model listing, cost header, pricing endpoint, `usage` presence, and per-model parameter support are unconfirmed. `scripts/check_endpoint.py` reports which hold.
 6. **Persistence.** SQLite is assumed to be enough for a single-user tool.

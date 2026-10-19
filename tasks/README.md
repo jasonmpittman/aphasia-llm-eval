@@ -7,9 +7,12 @@ values, comparator, and headline statistic. Files are validated against
 walkthrough and [`docs/comparison.md`](../docs/comparison.md) for comparator
 contracts.
 
-Task prompts must document the clinical conventions used to create their
-matching gold files. The bundled task prompts intentionally retain explicit
-placeholders until maintainers supply conventions that match verified gold.
+Task prompts must document the clinical or linguistic conventions used to
+create their matching reference files. The bundled CIU prompt reflects the
+maintainer-supplied clinical standard. The POS prompt reflects the documented
+UPOS conventions used by the provisional Cat Rescue development reference;
+that reference must be independently reviewed or replaced before it is
+described as an authoritative gold standard.
 
 Validate all tasks and their gold files with:
 

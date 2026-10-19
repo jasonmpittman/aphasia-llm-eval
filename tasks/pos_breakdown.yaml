@@ -2,7 +2,7 @@ schema_version: 1
 task_id: pos_breakdown
 title: Parts-of-Speech Breakdown
 category: morphosyntax
-version: "0.1.0"
+version: "0.2.0"
 description: >
   The model tags each numbered token of a transcript with one part-of-speech
   tag. The app derives the per-category breakdown.
@@ -24,15 +24,33 @@ prompt:
     part-of-speech tagging of speech transcripts from people with aphasia.
     Reply with the requested JSON object and nothing else.
   user_template: |
-    Tag every numbered token with exactly one tag from this list:
+    Tag every numbered token with exactly one Universal Dependencies v2 UPOS
+    tag from this list:
     {tagset}
 
     Rules:
-    - Tag each word as it is used in context, even if the utterance is
+    - Use each word's syntactic role in context, even when the utterance is
       fragmentary or ungrammatical.
-    - <state how to treat fillers, false starts, neologisms, and unintelligible
-      tokens, matching the conventions behind the gold file>
-    - Do not merge, split, skip, or reorder tokens.
+    - The numbered tokens are fixed. Do not merge, split, skip, add, or reorder
+      them. Contractions have already been expanded when required by this
+      dataset.
+    - Tag filled pauses such as "um" and "uh" as INTJ.
+    - Tag every intelligible repetition, false start, revision, and correction
+      attempt according to its role at that occurrence.
+    - Tag an intelligible neologism by its recoverable syntactic role. Use X
+      only when the word class cannot be determined; tag unintelligible
+      placeholders such as "xxx" as X.
+    - For this English dataset, tag personal, possessive, existential, and
+      relative pronouns as PRON. Tag articles and adnominal quantifiers as DET.
+    - Tag forms of "be" as AUX when they are progressive auxiliaries, copulas,
+      or existential copulas. Tag lexical verbs as VERB.
+    - Tag infinitival "to" as PART and prepositional "to" as ADP. Tag English
+      verbal particles as ADP or ADV according to their contextual use, not as
+      PART.
+    - Tag coordinating conjunctions such as "and" as CCONJ and subordinating
+      conjunctions as SCONJ.
+    - Speaker labels and transcription metadata are not tokens. Tag
+      punctuation as PUNCT only if it appears as a numbered token.
 
     Tokens:
     {numbered_tokens}

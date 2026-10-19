@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -64,6 +65,8 @@ def test_plain_and_numbered_token_renderers():
     )
     assert "1\tBlue\n2\tsky" in prompt.user
     assert "ADJ, ADP, ADV" in prompt.user
+    assert 'filled pauses such as "um" and "uh" as INTJ' in prompt.user
+    assert "<state how to treat fillers" not in prompt.user
     assert '{"tags": [{"i": 1, "pos": "DET"}' in prompt.user
 
 
@@ -81,6 +84,38 @@ def test_clinically_reviewed_cat_rescue_gold_matches_annotation():
     item = result.task.gold.items[0]
     assert item.item_id == "cat_rescue_001"
     assert item.gold == {"total_words": 65, "ciu_count": 57}
+
+
+def test_provisional_cat_rescue_pos_reference_matches_annotation():
+    result = load_task_file(
+        ROOT / "tasks/pos_breakdown.yaml",
+        gold_dir=ROOT / "gold_tasks",
+        schema_path=SCHEMA_PATH,
+    )
+
+    assert result.enabled, result.errors
+    assert result.task is not None and result.task.gold is not None
+    assert result.task.config["version"] == "0.2.0"
+    assert len(result.task.gold.items) == 1
+    item = result.task.gold.items[0]
+    assert item.item_id == "cat_rescue_001"
+    assert len(item.inputs["tokens"]) == 69
+    assert len(item.gold["tags"]) == 69
+    assert item.inputs["tokens"][0] == {"i": 1, "token": "um"}
+    assert item.inputs["tokens"][-1] == {"i": 69, "token": "singing"}
+    assert Counter(tag["pos"] for tag in item.gold["tags"]) == {
+        "ADJ": 1,
+        "ADP": 5,
+        "ADV": 3,
+        "AUX": 4,
+        "CCONJ": 6,
+        "DET": 14,
+        "INTJ": 4,
+        "NOUN": 14,
+        "PART": 2,
+        "PRON": 6,
+        "VERB": 10,
+    }
 
 
 @pytest.mark.parametrize(

@@ -121,6 +121,18 @@
       : formatNumber(value, 3);
   }
 
+  function formatHeadlineSummary(taskId, value) {
+    if (value === null || value === undefined) return "No valid result";
+    const headline = state.taskMeta.get(taskId)?.headline || {};
+    if (headline.stat === "mean_abs_diff" && headline.field === "ciu_count") {
+      if (value === 0) return "Exact CIU-count match";
+      const unit = Math.abs(value - 1) < Number.EPSILON ? "CIU" : "CIUs";
+      return `Off by ${formatNumber(value, 2)} ${unit} on average`;
+    }
+    if (headline.stat === "token_agreement") return `${formatNumber(value * 100, 1)}% token agreement`;
+    return `${formatHeadline(taskId, value)} · ${headlineLabel(taskId)}`;
+  }
+
   function baselineComparison(modelId, taskId, selectedValue) {
     if (!state.detail?.ablation?.enabled || activeCondition(modelId, taskId) === "baseline") return null;
     const baseline = conditionSummary(modelId, taskId, "baseline");
@@ -226,7 +238,7 @@
       const best = candidates[0];
       cards.append(metricCard(
         `Closest · ${taskTitle(taskId)}`,
-        best ? formatHeadline(taskId, best.value) : "No valid result",
+        formatHeadlineSummary(taskId, best?.value),
         best ? `${best.model} · ${conditionName(activeCondition(best.model, taskId))} · ${formatNumber((best.coverage || 0) * 100, 1)}% comparable` : "No selected configuration produced a gold-comparable answer.",
       ));
     });

@@ -20,7 +20,9 @@
     const selected = new Set(checkedValues('input[name="models"]'));
     modelList.replaceChildren();
     const filter = document.getElementById("model-search").value.trim().toLowerCase();
+    const showIncompatible = document.getElementById("show-incompatible-models").checked;
     state.models.forEach((model, index) => {
+      if (!model.selectable && !showIncompatible) return;
       const wrapper = element("div", {className: "model-option"});
       if (!model.id.toLowerCase().includes(filter)) wrapper.classList.add("d-none");
       const input = element("input", {
@@ -29,6 +31,7 @@
         name: "models",
         value: model.id,
         checked: selected.has(model.id),
+        disabled: !model.selectable,
         onchange: updateSummary,
       });
       const known = model.pricing_source !== "unknown";
@@ -36,11 +39,22 @@
         className: `pricing-badge ${known ? "pricing-known" : "pricing-unknown"}`,
         text: known ? `Priced · ${model.pricing_source.replaceAll("_", " ")}` : "Price unknown",
       });
+      const capabilityText = model.text_capability === "supported"
+        ? "Text confirmed"
+        : model.text_capability === "unsupported" ? "Not text-compatible" : "Text unverified";
+      const capabilityBadge = element("span", {
+        className: `capability-badge capability-${model.text_capability}`,
+        text: capabilityText,
+        title: model.capability_reason,
+      });
       const label = element("label", {htmlFor: input.id}, [
         element("span", {className: "model-name", text: model.id}),
-        badge,
+        element("span", {className: "model-badges"}, [capabilityBadge, badge]),
       ]);
       wrapper.append(input, label);
+      if (!model.selectable) {
+        wrapper.append(element("p", {className: "model-capability-reason", text: model.capability_reason}));
+      }
       modelList.append(wrapper);
     });
   }
@@ -134,7 +148,8 @@
 
   function updateSummary() {
     const metrics = selectionMetrics();
-    document.getElementById("model-count").textContent = `${metrics.modelIds.length} of ${state.models.length} selected`;
+    const selectableCount = state.models.filter((model) => model.selectable).length;
+    document.getElementById("model-count").textContent = `${metrics.modelIds.length} of ${selectableCount} selectable models selected`;
     document.getElementById("task-count").textContent = `${metrics.taskIds.length} of ${state.tasks.filter((task) => task.enabled).length} available selected`;
     const equation = document.getElementById("run-equation");
     if (metrics.modelIds.length && metrics.taskIds.length && Number.isFinite(metrics.requests)) {
@@ -225,8 +240,12 @@
   }
 
   document.getElementById("model-search").addEventListener("input", renderModels);
+  document.getElementById("show-incompatible-models").addEventListener("change", () => {
+    renderModels();
+    updateSummary();
+  });
   document.getElementById("select-all-models").addEventListener("click", () => {
-    document.querySelectorAll(".model-option:not(.d-none) input").forEach((input) => { input.checked = true; });
+    document.querySelectorAll(".model-option:not(.d-none) input:not(:disabled)").forEach((input) => { input.checked = true; });
     updateSummary();
   });
   document.getElementById("clear-models").addEventListener("click", () => setSelectedModels([]));

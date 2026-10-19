@@ -12,17 +12,16 @@ and a gold section:
 === item: sample_001 ===
 [input]
 duration_seconds: 95
-[input.transcript]
-Free text can span multiple lines.
 [gold]
-total_words: 112
-ciu_count: 74
+1<TAB>1<TAB>The<TAB>WORD<TAB>CIU
+2<TAB>1<TAB>um<TAB>NOT_WORD<TAB>NA
+3<TAB>1<TAB>dog<TAB>WORD<TAB>CIU
 ```
 
 `[input]` contains `key: value` scalar fields and `[input.<name>]` contains a
 multiline field. The task's parser interprets `[gold]`: `kv` accepts scalar
-`key: value` pairs, while `token_table` accepts tab-separated
-`index<TAB>token<TAB>tag` rows. See
+`key: value` pairs, `token_table` accepts tab-separated POS rows, and
+`ciu_token_table` accepts tab-separated token/word/CIU rows. See
 [`docs/gold-file-format.md`](../docs/gold-file-format.md) for the complete
 format and validation rules.
 
@@ -41,7 +40,8 @@ privacy, or redistribution requirements below.
 ## Bundled reference status
 
 - `gold_ciu_scoring.txt` contains the maintainer-supplied, clinically reviewed
-  Cat Rescue counts documented in `annotations/cat_rescue_001.md`.
+  Cat Rescue word and CIU token labels documented in
+  `annotations/cat_rescue_001.md`.
 - `gold_pos_breakdown.txt` contains a provisional development annotation
   derived from the same transcript. It enables end-to-end POS testing but has
   not been independently reviewed and is not an authoritative gold standard.

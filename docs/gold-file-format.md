@@ -15,12 +15,10 @@ cannot determine whether an annotation is clinically valid.
 [input]
 duration_seconds: 95
 stimulus: cookie_theft
-[input.transcript]
-Free text can span multiple lines.
-Blank lines are retained inside the field.
 [gold]
-total_words: 112
-ciu_count: 74
+1<TAB>1<TAB>The<TAB>WORD<TAB>CIU
+2<TAB>1<TAB>um<TAB>NOT_WORD<TAB>NA
+3<TAB>1<TAB>dog<TAB>WORD<TAB>CIU
 ```
 
 - `=== item: <id> ===` begins an item. IDs may contain letters, digits,
@@ -51,7 +49,8 @@ JSON Schema and comparator requirements.
 
 ### `token_table`
 
-`token_table` reads exactly three tab-separated columns per row:
+`token_table` reads three tab-separated columns per row, or four when an
+utterance number is supplied:
 
 ```text
 [gold]
@@ -64,6 +63,29 @@ Indices are positive integers and unique. Tokens and tags must be non-empty.
 The parser produces `tags` as the gold answer and also supplies numbered
 tokens to the task's prompt renderer. The task's declared tagset is validated
 separately.
+
+The optional four-column form is
+`index<TAB>utterance<TAB>token<TAB>tag`. It preserves utterance boundaries for
+the Token Analysis view.
+
+### `ciu_token_table`
+
+`ciu_token_table` reads exactly five tab-separated columns:
+
+```text
+[gold]
+1<TAB>1<TAB>The<TAB>WORD<TAB>CIU
+2<TAB>1<TAB>um<TAB>NOT_WORD<TAB>NA
+3<TAB>1<TAB>dog<TAB>WORD<TAB>CIU
+4<TAB>1<TAB>and<TAB>WORD<TAB>NOT_CIU
+```
+
+The columns are token index, utterance number, token text, word label, and CIU
+label. Token indices must be contiguous
+starting at 1. Word labels are `WORD` or `NOT_WORD`; a word uses `CIU` or
+`NOT_CIU`, while a non-word must use `NA`. The parser supplies fixed tokens to
+the prompt and produces `token_count`, `word_indices`, and `ciu_indices` as the
+gold answer.
 
 ## Validation and traceability
 

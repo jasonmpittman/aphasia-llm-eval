@@ -5,25 +5,33 @@ import hashlib
 import pytest
 
 from aphasia_eval.gold import GoldParseError, SourceLine, get_gold_parser
-from aphasia_eval.gold.parsers import parse_kv, parse_token_table
+from aphasia_eval.gold.parsers import parse_ciu_token_table, parse_kv, parse_token_table
 from aphasia_eval.services.gold_loader import (
     load_gold_file,
     resolve_gold_path,
 )
 
 
-def test_load_kv_example_with_inputs_and_hash():
+def test_load_ciu_token_example_with_inputs_and_hash():
     path = "gold_tasks/examples/gold_ciu_scoring.txt"
-    dataset = load_gold_file(path, "kv")
+    dataset = load_gold_file(path, "ciu_token_table")
 
     assert len(dataset.items) == 5
     assert dataset.items[0].item_id == "synthetic_ciu_001"
     assert dataset.items[0].inputs == {
         "duration_seconds": 6,
         "stimulus": "Synthetic sentence about weather",
-        "transcript": "Rain falls today.",
+        "tokens": [
+            {"i": 1, "utterance": 1, "token": "Rain"},
+            {"i": 2, "utterance": 1, "token": "falls"},
+            {"i": 3, "utterance": 1, "token": "today"},
+        ],
     }
-    assert dataset.items[0].gold == {"total_words": 3, "ciu_count": 3}
+    assert dataset.items[0].gold == {
+        "token_count": 3,
+        "word_indices": [1, 2, 3],
+        "ciu_indices": [1, 2, 3],
+    }
     assert dataset.sha256 == hashlib.sha256(dataset.path.read_bytes()).hexdigest()
 
 
@@ -105,6 +113,10 @@ def test_parser_level_malformed_and_empty_values():
         parse_kv([SourceLine(5, "answer: [1, 2]")])
     with pytest.raises(GoldParseError, match="at least 1"):
         parse_token_table([SourceLine(7, "0\ttoken\tNOUN")])
+    with pytest.raises(GoldParseError, match="five tab-separated"):
+        parse_ciu_token_table([SourceLine(8, "1\tword\tCIU")])
+    with pytest.raises(GoldParseError, match="must be NA"):
+        parse_ciu_token_table([SourceLine(9, "1\t1\tum\tNOT_WORD\tCIU")])
 
 
 def test_unknown_parser_and_unsafe_filename_are_rejected(tmp_path):

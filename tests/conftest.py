@@ -56,6 +56,7 @@ class FakeLiteLLMClient:
             return CompletionResult(
                 raw_text=None,
                 cost_headers={},
+                diagnostics={"finish_reason": "length", "content_state": "null"},
                 error=LiteLLMError("http_error", "Synthetic gateway failure.", 500),
                 **common,
             )
@@ -71,7 +72,7 @@ class FakeLiteLLMClient:
             tags = ",".join(f'{{"i": {index}, "pos": "NOUN"}}' for index in indices)
             raw_text = f'{{"tags": [{tags}]}}'
         else:
-            raw_text = '{"total_words": 3, "ciu_count": 3}'
+            raw_text = '{"word_indices": [1, 2, 3], "ciu_indices": [1, 2, 3]}'
         return CompletionResult(
             raw_text=raw_text,
             cost_headers={"x-litellm-response-cost": "0.001"},

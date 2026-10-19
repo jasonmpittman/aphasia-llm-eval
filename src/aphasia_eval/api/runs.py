@@ -18,6 +18,10 @@ from aphasia_eval.extensions import (
     get_orchestrator,
     get_pricing_service,
 )
+from aphasia_eval.services.model_capabilities import (
+    load_capability_overrides,
+    resolve_text_capability,
+)
 from aphasia_eval.services.orchestrator import (
     TERMINAL_RUN_STATUSES,
     RunEvent,
@@ -65,6 +69,20 @@ def create_run():
         return json_error(
             "invalid_models",
             f"Unknown or unavailable model(s): {', '.join(unavailable_models)}.",
+            400,
+        )
+    overrides = load_capability_overrides(current_app.config["MODEL_CAPABILITIES_PATH"])
+    incompatible_models = sorted(
+        model
+        for model in models
+        if resolve_text_capability(model, discovery.metadata.get(model), overrides).status
+        == "unsupported"
+    )
+    if incompatible_models:
+        return json_error(
+            "incompatible_models",
+            "Model(s) explicitly marked incompatible with text analysis: "
+            + ", ".join(incompatible_models),
             400,
         )
 

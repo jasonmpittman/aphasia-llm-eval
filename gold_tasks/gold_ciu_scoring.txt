@@ -1,16 +1,77 @@
-# Cat Rescue CIU reference data.
+# Cat Rescue token-level CIU reference data.
 # Research evaluation only; not a clinical tool.
 # See annotations/cat_rescue_001.md for the supplied analysis and provenance checklist.
+# Columns: index, utterance, token, WORD|NOT_WORD, CIU|NOT_CIU|NA.
 === item: cat_rescue_001 ===
 [input]
 stimulus: Cat Rescue
-[input.transcript]
-PAR: um the little girl wants her cat that climbed up in a tree
-PAR: and so the man got up the tree to retrieve the cat
-PAR: um and the ladder fell out behind him
-PAR: and the dog is barking at all the excitement
-PAR: and the firemen are coming to rescue, uh, I assume the cat and the man
-PAR: and uh there’s a bird on another branch that’s singing.
 [gold]
-total_words: 65
-ciu_count: 57
+1	1	um	NOT_WORD	NA
+2	1	the	WORD	CIU
+3	1	little	WORD	CIU
+4	1	girl	WORD	CIU
+5	1	wants	WORD	CIU
+6	1	her	WORD	CIU
+7	1	cat	WORD	CIU
+8	1	that	WORD	CIU
+9	1	climbed	WORD	CIU
+10	1	up	WORD	CIU
+11	1	in	WORD	CIU
+12	1	a	WORD	CIU
+13	1	tree	WORD	CIU
+14	2	and	WORD	NOT_CIU
+15	2	so	WORD	CIU
+16	2	the	WORD	CIU
+17	2	man	WORD	CIU
+18	2	got	WORD	CIU
+19	2	up	WORD	CIU
+20	2	the	WORD	CIU
+21	2	tree	WORD	CIU
+22	2	to	WORD	CIU
+23	2	retrieve	WORD	CIU
+24	2	the	WORD	CIU
+25	2	cat	WORD	CIU
+26	3	um	NOT_WORD	NA
+27	3	and	WORD	NOT_CIU
+28	3	the	WORD	CIU
+29	3	ladder	WORD	CIU
+30	3	fell	WORD	CIU
+31	3	out	WORD	CIU
+32	3	behind	WORD	CIU
+33	3	him	WORD	CIU
+34	4	and	WORD	NOT_CIU
+35	4	the	WORD	CIU
+36	4	dog	WORD	CIU
+37	4	is	WORD	CIU
+38	4	barking	WORD	CIU
+39	4	at	WORD	CIU
+40	4	all	WORD	CIU
+41	4	the	WORD	CIU
+42	4	excitement	WORD	CIU
+43	5	and	WORD	NOT_CIU
+44	5	the	WORD	CIU
+45	5	firemen	WORD	CIU
+46	5	are	WORD	CIU
+47	5	coming	WORD	CIU
+48	5	to	WORD	CIU
+49	5	rescue	WORD	CIU
+50	5	uh	NOT_WORD	NA
+51	5	I	WORD	NOT_CIU
+52	5	assume	WORD	NOT_CIU
+53	5	the	WORD	CIU
+54	5	cat	WORD	CIU
+55	5	and	WORD	NOT_CIU
+56	5	the	WORD	CIU
+57	5	man	WORD	CIU
+58	6	and	WORD	NOT_CIU
+59	6	uh	NOT_WORD	NA
+60	6	there	WORD	CIU
+61	6	is	WORD	CIU
+62	6	a	WORD	CIU
+63	6	bird	WORD	CIU
+64	6	on	WORD	CIU
+65	6	another	WORD	CIU
+66	6	branch	WORD	CIU
+67	6	that	WORD	CIU
+68	6	is	WORD	CIU
+69	6	singing	WORD	CIU

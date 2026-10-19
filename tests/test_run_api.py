@@ -37,24 +37,40 @@ def test_model_and_task_discovery(app, client):
                 "pricing_source": "override",
                 "input_usd_per_1m_tokens": 100000.0,
                 "output_usd_per_1m_tokens": 200000.0,
+                "text_capability": "unknown",
+                "capability_reason": "Gateway supplied no capability metadata.",
+                "capability_source": "unknown",
+                "selectable": True,
             },
             {
                 "id": "error-model",
                 "pricing_source": "proxy_pricing",
                 "input_usd_per_1m_tokens": 1.0,
                 "output_usd_per_1m_tokens": 2.0,
+                "text_capability": "unknown",
+                "capability_reason": "Gateway supplied no capability metadata.",
+                "capability_source": "unknown",
+                "selectable": True,
             },
             {
                 "id": "bad-json",
                 "pricing_source": "unknown",
                 "input_usd_per_1m_tokens": None,
                 "output_usd_per_1m_tokens": None,
+                "text_capability": "unknown",
+                "capability_reason": "Gateway supplied no capability metadata.",
+                "capability_source": "unknown",
+                "selectable": True,
             },
             {
                 "id": "alignment-model",
                 "pricing_source": "unknown",
                 "input_usd_per_1m_tokens": None,
                 "output_usd_per_1m_tokens": None,
+                "text_capability": "unknown",
+                "capability_reason": "Gateway supplied no capability metadata.",
+                "capability_source": "unknown",
+                "selectable": True,
             },
         ],
         "source": "gateway",
@@ -65,7 +81,7 @@ def test_model_and_task_discovery(app, client):
     assert [task["task_id"] for task in tasks] == ["ciu_scoring", "pos_breakdown"]
     assert all(task["enabled"] and task["gold_status"] == "found" for task in tasks)
     assert [task["item_count"] for task in tasks] == [5, 5]
-    assert tasks[0]["view_descriptor"]["type"] == "numeric_fields"
+    assert tasks[0]["view_descriptor"]["type"] == "ciu_token_labels"
 
 
 def test_degraded_health_and_missing_gold_status(app, client, fake_litellm, tmp_path):
@@ -87,6 +103,30 @@ def test_degraded_health_and_missing_gold_status(app, client, fake_litellm, tmp_
     app.config["GOLD_TASKS_DIR"] = str(tmp_path / "absent-gold")
     tasks = client.get("/api/tasks", headers=HEADERS).get_json()["tasks"]
     assert all(not task["enabled"] and task["gold_status"] == "missing" for task in tasks)
+
+
+def test_confirmed_non_text_model_is_listed_disabled_and_rejected(app, client, fake_litellm):
+    fake_litellm.models = ("audio-only",)
+    fake_litellm.list_models = lambda: ModelListResult(
+        ("audio-only",),
+        "gateway",
+        1,
+        1.0,
+        metadata={"audio-only": {"id": "audio-only", "mode": "transcription"}},
+    )
+
+    model = client.get("/api/models", headers=HEADERS).get_json()["models"][0]
+    assert model["text_capability"] == "unsupported"
+    assert model["selectable"] is False
+    assert model["capability_source"] == "gateway"
+
+    response = client.post(
+        "/api/runs",
+        json={"models": ["audio-only"], "tasks": ["ciu_scoring"]},
+        headers=HEADERS,
+    )
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "incompatible_models"
 
 
 def test_full_run_with_success_error_and_parse_failure(client, fake_litellm):
@@ -131,8 +171,16 @@ def test_full_run_with_success_error_and_parse_failure(client, fake_litellm):
     assert len(page["items"]) == 2
     assert all(item["status"] == "ok" for item in page["items"])
     assert page["items"][0]["prompt_rendered"]["system"]
-    assert page["items"][0]["input"]["transcript"]
+    assert page["items"][0]["input"]["tokens"]
     assert page["items"][0]["comparison"]["details"]["fields"]
+
+    errors = client.get(f"/api/runs/{run_id}/items?model=error-model", headers=HEADERS).get_json()[
+        "items"
+    ]
+    assert errors[0]["comparison"]["diagnostics"] == {
+        "finish_reason": "length",
+        "content_state": "null",
+    }
 
     failures = client.get(
         f"/api/runs/{run_id}/items?parse_failures=true", headers=HEADERS

@@ -25,7 +25,9 @@ errors, informal terms, embellishments, auxiliaries, and hyphenated words.
 
 Changing these conventions changes the experimental condition. The CIU task
 version was advanced from `0.1.0` to `0.2.0` when this standard replaced the
-placeholder prompt.
+placeholder prompt, and to `0.3.0` when count-only output was replaced by
+fixed token-index classifications. The application now derives word and CIU
+counts from those classifications and can audit disagreements token by token.
 
 ## Scope and limitation
 

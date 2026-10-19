@@ -2,7 +2,7 @@ schema_version: 1
 task_id: ciu_scoring
 title: Correct Information Unit (CIU) Scoring
 category: discourse
-version: "0.2.0"
+version: "0.3.0"
 description: >
   The model counts total words and Correct Information Units in a
   transcribed discourse sample.
@@ -11,10 +11,10 @@ references:
 
 gold:
   file: gold_ciu_scoring.txt
-  parser: kv
+  parser: ciu_token_table
 
 input:
-  fields: [transcript]
+  renderer: numbered_tokens
   optional_fields: [stimulus, duration_seconds]
 
 prompt:
@@ -26,7 +26,10 @@ prompt:
   user_template: |
     SCORE IN TWO PASSES.
 
-    PASS 1 — TOTAL WORDS
+    The numbered tokens and utterance boundaries are fixed. Do not merge,
+    split, add, remove, or reorder tokens.
+
+    PASS 1 — WORD IDENTIFICATION
     - Ignore speaker labels such as "PAR:", punctuation, pause marks, and CHAT
       transcription codes; they are not words.
     - Count every intelligible lexical word whose intended target is known in
@@ -42,6 +45,8 @@ prompt:
     - In CHAT repair notation such as "school [: stool]", count only the
       participant's original production ("school"); use the target only to
       understand the intended meaning.
+
+    Record the indices of every token counted as a word in word_indices.
 
     PASS 2 — CORRECT INFORMATION UNITS (CIUs)
     Evaluate only words counted in Pass 1. A CIU must be intelligible in
@@ -83,27 +88,38 @@ prompt:
     Stimulus or topic:
     {stimulus}
 
-    Transcript:
-    {transcript}
+    Numbered transcript tokens:
+    {numbered_tokens}
 
-    Return JSON: {{"total_words": <integer>, "ciu_count": <integer>}}
+    Return compact JSON with sorted, unique indices and no explanation:
+    {{"word_indices": [<indices counted as words>], "ciu_indices": [<word indices counted as CIUs>]}}
+    Every ciu_indices value must also appear in word_indices.
 
 output:
   format: json
   schema:
     type: object
-    required: [total_words, ciu_count]
+    required: [word_indices, ciu_indices]
     properties:
-      total_words: {type: integer, minimum: 0}
-      ciu_count: {type: integer, minimum: 0}
-    additionalProperties: true
+      token_count: {type: integer, minimum: 1}
+      word_indices:
+        type: array
+        items: {type: integer, minimum: 1}
+        uniqueItems: true
+      ciu_indices:
+        type: array
+        items: {type: integer, minimum: 1}
+        uniqueItems: true
+    additionalProperties: false
 
 derived:
+  - {name: total_words, function: length, args: [word_indices]}
+  - {name: ciu_count, function: length, args: [ciu_indices]}
   - {name: percent_ciu, function: percentage, args: [ciu_count, total_words]}
   - {name: ciu_per_minute, function: per_minute, args: [ciu_count, duration_seconds], optional: true}
 
 comparison:
-  type: numeric_fields
+  type: ciu_token_labels
   fields: [total_words, ciu_count, percent_ciu]
   tolerance: {total_words: 0, ciu_count: 0, percent_ciu: 0.5}
 

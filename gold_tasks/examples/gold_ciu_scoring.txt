@@ -1,46 +1,48 @@
 # SYNTHETIC DEMONSTRATION DATA ONLY. Not clinical data; no accuracy claim.
+# Columns: index, utterance, token, WORD|NOT_WORD, CIU|NOT_CIU|NA.
 === item: synthetic_ciu_001 ===
 [input]
 duration_seconds: 6
 stimulus: Synthetic sentence about weather
-[input.transcript]
-Rain falls today.
 [gold]
-total_words: 3
-ciu_count: 3
+1	1	Rain	WORD	CIU
+2	1	falls	WORD	CIU
+3	1	today	WORD	CIU
 
 === item: synthetic_ciu_002 ===
 [input]
 duration_seconds: 8
 stimulus: Synthetic sentence about an animal
-[input.transcript]
-The dog runs quickly.
 [gold]
-total_words: 4
-ciu_count: 4
+1	1	The	WORD	CIU
+2	1	dog	WORD	CIU
+3	1	runs	WORD	CIU
+4	1	quickly	WORD	CIU
+
 === item: synthetic_ciu_003 ===
 [input]
 duration_seconds: 10
-[input.transcript]
-Two birds sit near the window.
 [gold]
-total_words: 6
-ciu_count: 6
+1	1	Two	WORD	CIU
+2	1	birds	WORD	CIU
+3	1	sit	WORD	CIU
+4	1	near	WORD	CIU
+5	1	the	WORD	CIU
+6	1	window	WORD	CIU
 
 === item: synthetic_ciu_004 ===
 [input]
 duration_seconds: 5
-[input.transcript]
-We made tea.
 [gold]
-total_words: 3
-ciu_count: 3
+1	1	We	WORD	CIU
+2	1	made	WORD	CIU
+3	1	tea	WORD	CIU
 
 === item: synthetic_ciu_005 ===
 [input]
 duration_seconds: 7
-[input.transcript]
-A blue kite rose.
 [gold]
-total_words: 4
-ciu_count: 4
+1	1	A	WORD	CIU
+2	1	blue	WORD	CIU
+3	1	kite	WORD	CIU
+4	1	rose	WORD	CIU

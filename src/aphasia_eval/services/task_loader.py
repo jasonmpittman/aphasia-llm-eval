@@ -256,6 +256,7 @@ def _render_numbered_tokens(value: Any) -> str:
     if not isinstance(value, list) or not value:
         raise ValueError("numbered_tokens renderer requires a non-empty tokens list")
     lines = []
+    current_utterance = None
     for token in value:
         if not isinstance(token, Mapping):
             raise ValueError("each numbered token must be an object")
@@ -265,6 +266,15 @@ def _render_numbered_tokens(value: Any) -> str:
             raise ValueError(f"invalid numbered token index {index!r}")
         if not isinstance(text, str) or not text:
             raise ValueError(f"invalid token text at index {index}")
+        utterance = token.get("utterance")
+        if utterance is not None:
+            if not isinstance(utterance, int) or isinstance(utterance, bool) or utterance < 1:
+                raise ValueError(f"invalid utterance number at token index {index}")
+            if utterance != current_utterance:
+                if lines:
+                    lines.append("")
+                lines.append(f"Utterance {utterance}:")
+                current_utterance = utterance
         lines.append(f"{index}\t{text}")
     return "\n".join(lines)
 

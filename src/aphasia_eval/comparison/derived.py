@@ -48,13 +48,28 @@ def counts_by(values: Any) -> dict[str, int] | None:
     return dict(Counter(values))
 
 
+def length(values: Any) -> int | None:
+    """Return the length of a non-string sequence, or null for another value."""
+
+    if values is None or isinstance(values, str | bytes) or not isinstance(values, Sequence):
+        return None
+    return len(values)
+
+
 DERIVED_FUNCTIONS: dict[str, Callable[..., Any]] = {
     "percentage": percentage,
     "per_minute": per_minute,
     "ratio": ratio,
     "counts_by": counts_by,
+    "length": length,
 }
-DERIVED_ARITIES = {"percentage": 2, "per_minute": 2, "ratio": 2, "counts_by": 1}
+DERIVED_ARITIES = {
+    "percentage": 2,
+    "per_minute": 2,
+    "ratio": 2,
+    "counts_by": 1,
+    "length": 1,
+}
 
 _MISSING = object()
 

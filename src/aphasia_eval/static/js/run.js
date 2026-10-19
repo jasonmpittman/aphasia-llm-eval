@@ -38,6 +38,14 @@
     return state.detail?.tasks.map((task) => task.task_id) || [];
   }
 
+  function jobItems(modelId, taskId) {
+    return state.items.filter((item) => item.model_id === modelId && item.task_id === taskId);
+  }
+
+  function failedItems(modelId, taskId) {
+    return jobItems(modelId, taskId).filter((item) => item.status !== "ok");
+  }
+
   function setStatus(status) {
     const node = document.getElementById("run-status");
     node.className = `status-pill status-${status}`;
@@ -82,6 +90,12 @@
   function renderOverview() {
     const cards = document.getElementById("overview-cards");
     cards.replaceChildren();
+    const failures = state.items.filter((item) => item.status !== "ok" && item.status !== "cancelled");
+    cards.append(metricCard(
+      "Failed jobs",
+      `${failures.length} / ${state.items.length}`,
+      failures.length ? "Open Items and filter failures for details." : "All jobs returned comparable output.",
+    ));
     tasks().forEach((taskId) => {
       const meta = state.taskMeta.get(taskId);
       const candidates = models().map((model) => ({model, value: aggregate(model, taskId, "headline", meta?.headline?.field || null)})).filter((entry) => entry.value !== null);
@@ -114,7 +128,13 @@
         const normalized = value === null || maximum === minimum ? 0 : (value - minimum) / (maximum - minimum);
         const favorable = meta?.headline?.better === "lower" ? 1 - normalized : normalized;
         const level = value === null ? 0 : Math.max(1, Math.min(4, Math.ceil(favorable * 4)));
-        const cell = element("td", {className: `heat-cell heat-${level}`, text: value === null ? "n/a" : formatNumber(value, 3)});
+        const failures = failedItems(model, taskId);
+        const cellText = value === null && failures.length ? `Error · ${failures.length}` : value === null ? "n/a" : formatNumber(value, 3);
+        const cell = element("td", {
+          className: `heat-cell ${failures.length && value === null ? "heat-error" : `heat-${level}`}`,
+          text: cellText,
+          title: failures[0]?.error_message || "",
+        });
         const deviation = aggregate(model, taskId, "headline_stddev", meta?.headline?.field || null);
         if (deviation !== null) cell.append(element("span", {className: "d-block small fw-normal", text: `SD ${formatNumber(deviation, 3)}`}));
         row.append(cell);
@@ -241,6 +261,7 @@
       rows.forEach((item) => Object.entries(item.comparison.details.fields).forEach(([field, detail]) => body.append(element("tr", {}, [element("th", {scope: "row", text: item.item_id}), element("td", {text: field}), element("td", {text: formatNumber(detail.model, 3)}), element("td", {text: formatNumber(detail.gold, 3)}), element("td", {text: formatNumber(detail.difference, 3)})]))));
       table.append(element("thead", {}, head), body);
       block.append(element("div", {className: "table-responsive"}, table));
+      appendFailureNotice(block, failedItems(model, taskId));
       container.append(block);
     });
     const points = taskItems.map((item) => ({x: item.comparison.details.fields.ciu_count?.gold, y: item.comparison.details.fields.ciu_count?.model, model: item.model_id})).filter((point) => point.x !== undefined && point.y !== undefined);
@@ -263,10 +284,11 @@
       const rows = taskItems.filter((item) => item.model_id === model);
       const alignment = rows.filter((item) => item.comparison.statistics.alignment_problem).length;
       const ratioValues = rows.map((item) => item.comparison.details.derived_ratios).filter(Boolean);
+      const agreement = aggregate(model, taskId, "token_agreement");
       const block = element("section", {className: "detail-model-block"}, [
         element("h3", {className: "h5", text: model}),
         element("div", {className: "row g-3 mb-3"}, [
-          metricCard("Mean token agreement", formatNumber(aggregate(model, taskId, "token_agreement") * 100, 1) + "%").firstChild,
+          metricCard("Mean token agreement", agreement === null ? "n/a" : `${formatNumber(agreement * 100, 1)}%`).firstChild,
           metricCard("Alignment problems", `${alignment} / ${rows.length}`).firstChild,
           metricCard("Derived ratios", ratioValues.length ? jsonText(ratioValues[0]) : "n/a").firstChild,
         ]),
@@ -283,6 +305,7 @@
       tagset.forEach((tag) => body.append(element("tr", {}, [element("th", {scope: "row", text: tag}), element("td", {text: modelCounts[tag]}), element("td", {text: goldCounts[tag]}), element("td", {text: modelCounts[tag] - goldCounts[tag]})])));
       table.append(element("thead", {}, element("tr", {}, [element("th", {scope: "col", text: "Category"}), element("th", {scope: "col", text: "Model count"}), element("th", {scope: "col", text: "Gold count"}), element("th", {scope: "col", text: "Signed difference"})])), body);
       block.append(element("div", {className: "table-responsive"}, table));
+      appendFailureNotice(block, failedItems(model, taskId));
       container.append(block);
       const colors = chartColors();
       chartDatasets.push({label: `${model} · model`, data: tagset.map((tag) => modelCounts[tag]), backgroundColor: modelIndex % 2 ? colors.coral : colors.teal});
@@ -295,10 +318,123 @@
     }
   }
 
+  function appendFailureNotice(container, failures) {
+    if (!failures.length) return;
+    const list = element("ul", {className: "failure-list"});
+    failures.forEach((item) => list.append(element("li", {}, [
+      element("strong", {text: `${item.item_id} · ${item.status.replaceAll("_", " ")}`}),
+      element("span", {text: item.error_message || "No diagnostic message was returned."}),
+    ])));
+    container.append(element("section", {className: "failure-panel", role: "status"}, [
+      element("h4", {className: "h6", text: "Unsuccessful jobs"}),
+      list,
+    ]));
+  }
+
+  function renderTokenAnalysis() {
+    const modelSelect = document.getElementById("token-model-select");
+    const itemSelect = document.getElementById("token-item-select");
+    const repetitionSelect = document.getElementById("token-repetition-select");
+    const viewSelect = document.getElementById("token-view-select");
+    const currentModel = modelSelect.value;
+    const currentItem = itemSelect.value;
+    const currentRepetition = repetitionSelect.value;
+    const itemIds = [...new Set(state.items.filter((item) => Array.isArray(item.input?.tokens)).map((item) => item.item_id))].sort();
+    const repetitions = [...new Set(state.items.map((item) => item.repetition))].sort((a, b) => a - b);
+    modelSelect.replaceChildren(...models().map((model) => element("option", {value: model, text: model})));
+    itemSelect.replaceChildren(...itemIds.map((item) => element("option", {value: item, text: item})));
+    repetitionSelect.replaceChildren(...repetitions.map((repetition) => element("option", {value: repetition, text: String(repetition)})));
+    if (models().includes(currentModel)) modelSelect.value = currentModel;
+    if (itemIds.includes(currentItem)) itemSelect.value = currentItem;
+    if (repetitions.includes(Number(currentRepetition))) repetitionSelect.value = currentRepetition;
+    modelSelect.onchange = renderTokenAnalysisView;
+    itemSelect.onchange = renderTokenAnalysisView;
+    repetitionSelect.onchange = renderTokenAnalysisView;
+    viewSelect.onchange = renderTokenAnalysisView;
+    renderTokenAnalysisView();
+  }
+
+  function renderTokenAnalysisView() {
+    const container = document.getElementById("token-analysis-view");
+    const model = document.getElementById("token-model-select").value;
+    const itemId = document.getElementById("token-item-select").value;
+    const repetition = Number(document.getElementById("token-repetition-select").value);
+    const view = document.getElementById("token-view-select").value;
+    const candidates = state.items.filter((item) => item.model_id === model && item.item_id === itemId && item.repetition === repetition);
+    const ciu = candidates.find((item) => item.task_id === "ciu_scoring");
+    const pos = candidates.find((item) => item.task_id === "pos_breakdown");
+    const source = ciu?.input?.tokens || pos?.input?.tokens;
+    container.replaceChildren();
+    if (!Array.isArray(source) || !source.length) {
+      container.append(element("p", {className: "empty-state", text: "Token annotations are unavailable for this run or task version."}));
+      return;
+    }
+
+    const ciuDetails = new Map((ciu?.comparison?.details?.tokens || []).map((row) => [row.i, row]));
+    const posDetails = new Map((pos?.comparison?.details?.tokens || []).map((row) => [row.i, row]));
+    const unavailable = [];
+    if (ciu && ciu.status !== "ok") unavailable.push(`CIU: ${ciu.error_message || ciu.status}`);
+    if (pos && pos.status !== "ok") unavailable.push(`POS: ${pos.error_message || pos.status}`);
+    if (!ciu) unavailable.push("CIU task was not included in this run.");
+    if (!pos) unavailable.push("POS task was not included in this run.");
+    if (unavailable.length) {
+      container.append(element("div", {className: "token-analysis-notice", role: "status"}, unavailable.map((message) => element("p", {text: message}))));
+    }
+
+    container.append(element("div", {className: "token-legend", "aria-label": "Token annotation legend"}, [
+      annotationBadge("W · CIU", "ciu"),
+      annotationBadge("W · non-CIU", "not-ciu"),
+      annotationBadge("NW", "not-word"),
+      annotationBadge("POS", "pos"),
+      element("span", {className: "token-disagreement-key", text: "Outlined token = model disagrees with reference"}),
+    ]));
+
+    const utterances = new Map();
+    source.forEach((token) => {
+      const utterance = Number.isInteger(token.utterance) ? token.utterance : 1;
+      if (!utterances.has(utterance)) utterances.set(utterance, []);
+      utterances.get(utterance).push(token);
+    });
+    utterances.forEach((tokens, utterance) => {
+      const line = element("div", {className: "token-line"});
+      tokens.forEach((token) => line.append(renderAnnotatedToken(token, ciuDetails.get(token.i), posDetails.get(token.i), view)));
+      container.append(element("section", {className: "utterance-card"}, [
+        element("h3", {className: "utterance-label", text: `Utterance ${utterance}`}),
+        line,
+      ]));
+    });
+  }
+
+  function renderAnnotatedToken(token, ciuDetail, posDetail, view) {
+    const ciuLabel = view === "gold" ? ciuDetail?.gold : ciuDetail?.model;
+    const posLabel = view === "gold" ? posDetail?.gold : posDetail?.model;
+    const disagreement = view === "diff" && ((ciuDetail && !ciuDetail.agreed) || (posDetail && !posDetail.agreed));
+    const ciuText = ciuLabel === "ciu" ? "W · CIU" : ciuLabel === "not_ciu" ? "W · non-CIU" : ciuLabel === "not_word" ? "NW" : "CIU —";
+    const ciuClass = ciuLabel === "ciu" ? "ciu" : ciuLabel === "not_ciu" ? "not-ciu" : ciuLabel === "not_word" ? "not-word" : "unavailable";
+    const titleParts = [];
+    if (view === "diff" && ciuDetail) titleParts.push(`CIU reference: ${ciuDetail.gold}; model: ${ciuDetail.model}`);
+    if (view === "diff" && posDetail) titleParts.push(`POS reference: ${posDetail.gold}; model: ${posDetail.model}`);
+    return element("span", {
+      className: `annotated-token${disagreement ? " token-disagreement" : ""}`,
+      title: titleParts.join(" | "),
+    }, [
+      element("span", {className: "token-index", text: token.i}),
+      element("strong", {className: "token-text", text: token.token}),
+      element("span", {className: "token-labels"}, [
+        annotationBadge(ciuText, ciuClass),
+        annotationBadge(posLabel || "POS —", posLabel ? "pos" : "unavailable"),
+      ]),
+    ]);
+  }
+
+  function annotationBadge(text, kind) {
+    return element("span", {className: `annotation-badge annotation-${kind}`, text});
+  }
+
   function filteredItems() {
     return state.items.filter((item) => {
       if (document.getElementById("filter-disagreements").checked && !(item.status === "ok" && item.matched === false)) return false;
-      if (document.getElementById("filter-parse").checked && item.status !== "parse_failure") return false;
+      if (document.getElementById("filter-failures").checked && item.status === "ok") return false;
       if (document.getElementById("filter-alignment").checked && !item.comparison?.statistics?.alignment_problem) return false;
       return true;
     });
@@ -319,7 +455,8 @@
     visible.forEach((item) => {
       const metadata = element("div", {}, [element("strong", {text: `${item.item_id} · ${item.model_id}`}), element("span", {className: "d-block small text-secondary", text: `${taskTitle(item.task_id)} · repetition ${item.repetition}${item.tokens_estimated ? " · token counts est." : ""}`})]);
       const body = element("div", {className: "item-result-body"}, [dataBlock("Input", item.input), dataBlock("Gold", item.gold), dataBlock("Model answer", item.parsed_output)]);
-      const details = element("details", {className: "raw-output"}, [element("summary", {text: "Raw output and comparison details"}), dataBlock("Raw model output", item.raw_output), dataBlock("Comparison", item.comparison), item.error_message ? element("p", {className: "text-danger mt-3", text: item.error_message}) : null]);
+      if (item.status !== "ok") body.prepend(element("p", {className: "result-error-message", text: item.error_message || "This job did not return a comparable result."}));
+      const details = element("details", {className: "raw-output"}, [element("summary", {text: "Raw output and comparison details"}), dataBlock("Raw model output", item.raw_output), dataBlock("Response diagnostics", item.comparison?.diagnostics), dataBlock("Comparison", item.comparison), item.error_message ? element("p", {className: "text-danger mt-3", text: item.error_message}) : null]);
       list.append(element("article", {className: "item-result"}, [element("header", {className: "item-result-header"}, [metadata, statusBadge(item.status)]), body, details]));
     });
     renderPagination(pages);
@@ -363,6 +500,7 @@
     renderOverview();
     renderEfficiency();
     renderTaskSelector();
+    renderTokenAnalysis();
     renderItems();
     renderRunInfo();
     document.getElementById("result-refresh").textContent = terminalStatuses.has(run.status) ? `Finished ${formatDate(run.finished_at)}` : "Results update as jobs complete.";
@@ -447,7 +585,7 @@
       button.textContent = "Cancel run";
     }
   });
-  ["filter-disagreements", "filter-parse", "filter-alignment"].forEach((id) => document.getElementById(id).addEventListener("change", () => { state.itemPage = 1; renderItems(); }));
+  ["filter-disagreements", "filter-failures", "filter-alignment"].forEach((id) => document.getElementById(id).addEventListener("change", () => { state.itemPage = 1; renderItems(); }));
   window.addEventListener("beforeunload", () => {
     window.clearTimeout(state.refreshTimer);
     state.source?.close();

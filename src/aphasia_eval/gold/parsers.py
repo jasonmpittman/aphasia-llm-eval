@@ -82,7 +82,7 @@ def parse_kv(lines: Sequence[SourceLine]) -> ParsedGold:
 
 
 def parse_token_table(lines: Sequence[SourceLine]) -> ParsedGold:
-    """Parse tab-separated ``index, token, tag`` rows."""
+    """Parse tab-separated ``index, token, tag`` or ``index, utterance, token, tag`` rows."""
 
     tags: list[dict[str, Any]] = []
     tokens: list[dict[str, Any]] = []
@@ -92,12 +92,17 @@ def parse_token_table(lines: Sequence[SourceLine]) -> ParsedGold:
         if not stripped or stripped.startswith("#"):
             continue
         columns = source_line.text.split("\t")
-        if len(columns) != 3:
+        if len(columns) not in {3, 4}:
             raise GoldParseError(
-                "expected three tab-separated columns: index, token, tag",
+                "expected three or four tab-separated columns: index, [utterance,] token, tag",
                 line_number=source_line.number,
             )
-        raw_index, raw_token, raw_tag = (column.strip() for column in columns)
+        if len(columns) == 4:
+            raw_index, raw_utterance, raw_token, raw_tag = (column.strip() for column in columns)
+            utterance = _positive_integer(raw_utterance, "utterance number", source_line.number)
+        else:
+            raw_index, raw_token, raw_tag = (column.strip() for column in columns)
+            utterance = None
         try:
             index = int(raw_index)
         except ValueError as error:
@@ -114,10 +119,84 @@ def parse_token_table(lines: Sequence[SourceLine]) -> ParsedGold:
         if not raw_tag:
             raise GoldParseError("tag must not be empty", line_number=source_line.number)
         seen_indices.add(index)
-        tokens.append({"i": index, "token": raw_token})
+        token = {"i": index, "token": raw_token}
+        if utterance is not None:
+            token["utterance"] = utterance
+        tokens.append(token)
         tags.append({"i": index, "pos": raw_tag})
 
     if not tags:
         line_number = lines[0].number if lines else None
         raise GoldParseError("[gold] token table is empty", line_number=line_number)
     return ParsedGold(answer={"tags": tags}, inputs={"tokens": tokens})
+
+
+def parse_ciu_token_table(lines: Sequence[SourceLine]) -> ParsedGold:
+    """Parse CIU rows as ``index, utterance, token, word label, CIU label``."""
+
+    tokens: list[dict[str, Any]] = []
+    word_indices: list[int] = []
+    ciu_indices: list[int] = []
+    seen_indices: set[int] = set()
+    for source_line in lines:
+        stripped = source_line.text.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        columns = [column.strip() for column in source_line.text.split("\t")]
+        if len(columns) != 5:
+            raise GoldParseError(
+                "expected five tab-separated columns: "
+                "index, utterance, token, word label, CIU label",
+                line_number=source_line.number,
+            )
+        raw_index, raw_utterance, token_text, word_label, ciu_label = columns
+        index = _positive_integer(raw_index, "token index", source_line.number)
+        utterance = _positive_integer(raw_utterance, "utterance number", source_line.number)
+        if index in seen_indices:
+            raise GoldParseError(f"duplicate token index {index}", line_number=source_line.number)
+        if not token_text:
+            raise GoldParseError("token must not be empty", line_number=source_line.number)
+        if word_label not in {"WORD", "NOT_WORD"}:
+            raise GoldParseError(
+                "word label must be WORD or NOT_WORD", line_number=source_line.number
+            )
+        allowed_ciu = {"CIU", "NOT_CIU"} if word_label == "WORD" else {"NA"}
+        if ciu_label not in allowed_ciu:
+            expected = "CIU or NOT_CIU" if word_label == "WORD" else "NA"
+            raise GoldParseError(
+                f"CIU label for {word_label} must be {expected}",
+                line_number=source_line.number,
+            )
+        seen_indices.add(index)
+        tokens.append({"i": index, "utterance": utterance, "token": token_text})
+        if word_label == "WORD":
+            word_indices.append(index)
+        if ciu_label == "CIU":
+            ciu_indices.append(index)
+
+    if not tokens:
+        line_number = lines[0].number if lines else None
+        raise GoldParseError("[gold] CIU token table is empty", line_number=line_number)
+    expected_indices = set(range(1, len(tokens) + 1))
+    if seen_indices != expected_indices:
+        raise GoldParseError("CIU token indices must be contiguous starting at 1")
+    return ParsedGold(
+        answer={
+            "token_count": len(tokens),
+            "word_indices": word_indices,
+            "ciu_indices": ciu_indices,
+        },
+        inputs={"tokens": tokens},
+    )
+
+
+def _positive_integer(raw_value: str, label: str, line_number: int) -> int:
+    try:
+        value = int(raw_value)
+    except ValueError as error:
+        raise GoldParseError(
+            f"{label} must be an integer, got {raw_value!r}", line_number=line_number
+        ) from error
+    if value < 1:
+        raise GoldParseError(f"{label} must be at least 1", line_number=line_number)
+    return value

@@ -339,11 +339,13 @@ class RunOrchestrator:
             "total_elapsed_ms": completion.total_elapsed_ms,
             "attempts": completion.attempts,
         }
+        diagnostics = dict(completion.diagnostics)
         if completion.error is not None:
             self._persist_result(
                 job,
                 status="error",
                 error_message=completion.error.message,
+                comparison_json={"diagnostics": diagnostics},
                 cost_source="unknown",
                 **common,
             )
@@ -365,6 +367,7 @@ class RunOrchestrator:
                 job,
                 status="parse_failure",
                 error_message=parsed.error.message,
+                comparison_json={"diagnostics": diagnostics},
                 matched=False,
                 cost_usd=cost.cost_usd,
                 cost_source=cost.cost_source,
@@ -388,6 +391,7 @@ class RunOrchestrator:
                 "details": outcome.details,
                 "statistics": outcome.statistics,
                 "view_descriptor": outcome.view_descriptor,
+                "diagnostics": diagnostics,
             },
             matched=outcome.matched,
             cost_usd=cost.cost_usd,

@@ -22,8 +22,10 @@ ErrorCode = Literal[
     "http_error",
     "invalid_response",
     "network_error",
+    "no_final_content",
     "token_estimation_error",
     "timeout",
+    "truncated",
 ]
 ModelSource = Literal["gateway", "allowlist"]
 
@@ -54,6 +56,7 @@ class CompletionResult:
     attempts: int
     cost_headers: Mapping[str, str] = field(default_factory=dict)
     optional_parameters_removed: bool = False
+    diagnostics: Mapping[str, Any] = field(default_factory=dict)
     error: LiteLLMError | None = None
 
     @property
@@ -72,6 +75,7 @@ class ModelListResult:
     attempts: int
     total_elapsed_ms: float
     error: LiteLLMError | None = None
+    metadata: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -299,15 +303,15 @@ class LiteLLMClient:
             entries = data["data"]
             if not isinstance(entries, list):
                 raise TypeError
-            discovered = tuple(
-                dict.fromkeys(
-                    entry["id"].strip()
-                    for entry in entries
-                    if isinstance(entry, Mapping)
-                    and isinstance(entry.get("id"), str)
-                    and entry["id"].strip()
-                )
-            )
+            valid_entries = [
+                entry
+                for entry in entries
+                if isinstance(entry, Mapping)
+                and isinstance(entry.get("id"), str)
+                and entry["id"].strip()
+            ]
+            discovered = tuple(dict.fromkeys(entry["id"].strip() for entry in valid_entries))
+            metadata = {entry["id"].strip(): dict(entry) for entry in valid_entries}
         except (KeyError, TypeError):
             invalid_error = LiteLLMError(
                 code="invalid_response",
@@ -327,12 +331,16 @@ class LiteLLMClient:
                 source="allowlist",
                 attempts=attempts,
                 total_elapsed_ms=elapsed_ms,
+                metadata={
+                    model: metadata[model] for model in self._model_allowlist if model in metadata
+                },
             )
         return ModelListResult(
             models=discovered,
             source="gateway",
             attempts=attempts,
             total_elapsed_ms=elapsed_ms,
+            metadata=metadata,
         )
 
     def get_model_info(self) -> ModelInfoResult:
@@ -418,8 +426,7 @@ class LiteLLMClient:
     ) -> CompletionResult:
         try:
             data = response.json()
-            raw_text = _message_text(data["choices"][0]["message"]["content"])
-        except (IndexError, KeyError, TypeError, ValueError):
+        except ValueError:
             return self._completion_failure(
                 operation_started,
                 attempts,
@@ -429,6 +436,44 @@ class LiteLLMClient:
                 ),
                 optional_parameters_removed,
                 latency_ms=latency_ms,
+                diagnostics={"response_type": "non_json"},
+            )
+        diagnostics = _completion_diagnostics(data)
+        try:
+            content = data["choices"][0]["message"]["content"]
+            raw_text = _message_text(content)
+        except (IndexError, KeyError, TypeError, ValueError):
+            finish_reason = diagnostics.get("finish_reason")
+            reasoning_present = diagnostics.get("reasoning_present") is True
+            if finish_reason == "length":
+                error = LiteLLMError(
+                    code="truncated",
+                    message=(
+                        "Model exhausted its output token limit before returning final answer text."
+                    ),
+                )
+            elif reasoning_present:
+                error = LiteLLMError(
+                    code="no_final_content",
+                    message="Model returned reasoning but no final answer text.",
+                )
+            elif diagnostics.get("content_state") == "null":
+                error = LiteLLMError(
+                    code="no_final_content",
+                    message="Model returned no final answer text.",
+                )
+            else:
+                error = LiteLLMError(
+                    code="invalid_response",
+                    message="LiteLLM completion response had an unexpected shape.",
+                )
+            return self._completion_failure(
+                operation_started,
+                attempts,
+                error,
+                optional_parameters_removed,
+                latency_ms=latency_ms,
+                diagnostics=diagnostics,
             )
 
         usage = data.get("usage") if isinstance(data, Mapping) else None
@@ -451,6 +496,7 @@ class LiteLLMClient:
                     ),
                     optional_parameters_removed,
                     latency_ms=latency_ms,
+                    diagnostics=diagnostics,
                 )
             if estimated_prompt < 0 or estimated_completion < 0:
                 return self._completion_failure(
@@ -462,6 +508,7 @@ class LiteLLMClient:
                     ),
                     optional_parameters_removed,
                     latency_ms=latency_ms,
+                    diagnostics=diagnostics,
                 )
             prompt_tokens = prompt_tokens if prompt_tokens is not None else estimated_prompt
             completion_tokens = (
@@ -489,6 +536,7 @@ class LiteLLMClient:
             attempts=attempts,
             cost_headers=cost_headers,
             optional_parameters_removed=optional_parameters_removed,
+            diagnostics=diagnostics,
         )
 
     def _completion_failure(
@@ -498,6 +546,7 @@ class LiteLLMClient:
         error: LiteLLMError,
         optional_parameters_removed: bool,
         latency_ms: float | None = None,
+        diagnostics: Mapping[str, Any] | None = None,
     ) -> CompletionResult:
         return CompletionResult(
             raw_text=None,
@@ -509,6 +558,7 @@ class LiteLLMClient:
             total_elapsed_ms=self._elapsed_ms(operation_started),
             attempts=attempts,
             optional_parameters_removed=optional_parameters_removed,
+            diagnostics=diagnostics or {},
             error=error,
         )
 
@@ -577,6 +627,52 @@ def _message_text(content: Any) -> str:
         if pieces:
             return "".join(pieces)
     raise ValueError("completion content is not textual")
+
+
+def _completion_diagnostics(data: Any) -> dict[str, Any]:
+    """Extract safe, model-agnostic response metadata without reasoning text."""
+
+    diagnostics: dict[str, Any] = {
+        "response_type": type(data).__name__,
+        "content_state": "unavailable",
+        "reasoning_present": False,
+    }
+    if not isinstance(data, Mapping):
+        return diagnostics
+    for source, target in (
+        ("object", "response_object"),
+        ("model", "response_model"),
+        ("system_fingerprint", "system_fingerprint"),
+    ):
+        value = data.get(source)
+        if isinstance(value, str) and value:
+            diagnostics[target] = value[:200]
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], Mapping):
+        return diagnostics
+    choice = choices[0]
+    finish_reason = choice.get("finish_reason")
+    if isinstance(finish_reason, str):
+        diagnostics["finish_reason"] = finish_reason[:100]
+    message = choice.get("message")
+    if not isinstance(message, Mapping):
+        return diagnostics
+    content = message.get("content")
+    if content is None:
+        diagnostics["content_state"] = "null"
+    elif isinstance(content, str):
+        diagnostics["content_state"] = "text"
+    elif isinstance(content, list):
+        diagnostics["content_state"] = "parts"
+    else:
+        diagnostics["content_state"] = type(content).__name__
+    provider_fields = message.get("provider_specific_fields")
+    provider_reasoning = (
+        provider_fields.get("reasoning") if isinstance(provider_fields, Mapping) else None
+    )
+    reasoning = message.get("reasoning_content")
+    diagnostics["reasoning_present"] = bool(reasoning or provider_reasoning)
+    return diagnostics
 
 
 def _nonnegative_int(value: Any) -> int | None:

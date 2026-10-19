@@ -293,6 +293,40 @@ def test_invalid_completion_shape_is_a_structured_failure(body):
     assert result.latency_ms is not None
 
 
+@pytest.mark.parametrize(
+    "message, finish_reason, code, expected_message",
+    [
+        ({"content": None}, "stop", "no_final_content", "no final answer"),
+        (
+            {"content": None, "reasoning_content": "private reasoning"},
+            "stop",
+            "no_final_content",
+            "reasoning but no final answer",
+        ),
+        ({"content": None}, "length", "truncated", "output token limit"),
+    ],
+)
+def test_missing_final_content_has_model_agnostic_diagnostics(
+    message, finish_reason, code, expected_message
+):
+    body = {
+        "object": "chat.completion",
+        "model": "provider/model-v2",
+        "choices": [{"message": message, "finish_reason": finish_reason}],
+    }
+    client, http_client, _ = make_client(lambda _request: httpx.Response(200, json=body))
+    result = client.chat_completion(model="model-a", messages=MESSAGES)
+    http_client.close()
+
+    assert result.error is not None
+    assert result.error.code == code
+    assert expected_message in result.error.message
+    assert result.diagnostics["finish_reason"] == finish_reason
+    assert result.diagnostics["content_state"] == "null"
+    assert result.diagnostics["response_model"] == "provider/model-v2"
+    assert "private reasoning" not in json.dumps(result.diagnostics)
+
+
 def test_network_error_is_structured_without_retry():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=request)
@@ -322,6 +356,7 @@ def test_list_models_discovers_unique_ids():
     assert result.models == ("model-b", "model-a")
     assert result.source == "gateway"
     assert result.error is None
+    assert result.metadata["model-a"] == {"id": "model-a"}
 
 
 def test_list_models_uses_allowlist_when_endpoint_fails():

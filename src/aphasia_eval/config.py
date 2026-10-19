@@ -65,6 +65,9 @@ def load_config() -> dict[str, Any]:
         "PRICING_OVERRIDES_PATH": os.getenv(
             "PRICING_OVERRIDES_PATH", "config/pricing_overrides.yaml"
         ),
+        "MODEL_CAPABILITIES_PATH": os.getenv(
+            "MODEL_CAPABILITIES_PATH", "config/model_capabilities.yaml"
+        ),
         "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
         "ALLOW_NON_LOCAL_BIND": _as_bool(os.getenv("ALLOW_NON_LOCAL_BIND")),
         "DEBUG": False,

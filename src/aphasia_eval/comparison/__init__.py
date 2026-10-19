@@ -94,11 +94,13 @@ def compare_answers(
     )
 
 
+from .ciu_token_labels import CIUTokenLabelsComparator  # noqa: E402
 from .numeric_fields import NumericFieldsComparator  # noqa: E402
 from .token_tags import TokenTagsComparator  # noqa: E402
 
 register_comparator(NumericFieldsComparator())
 register_comparator(TokenTagsComparator())
+register_comparator(CIUTokenLabelsComparator())
 
 __all__ = [
     "COMPARATORS",

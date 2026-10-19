@@ -250,6 +250,7 @@ DEFAULT_TEMPERATURE=0
 DEFAULT_MAX_OUTPUT_TOKENS=2048
 DEFAULT_REPETITIONS=1
 MODEL_ALLOWLIST=                        # Comma-separated model IDs; empty means all discovered
+MODEL_CAPABILITIES_PATH=config/model_capabilities.yaml
 LOG_LEVEL=INFO
 ```
 
@@ -275,6 +276,13 @@ The gateway is treated as OpenAI-compatible.
 | Pricing metadata | `/model/info` or another path the proxy exposes | **[Verify]** Often admin-only or disabled. |
 
 Every request sends `Authorization: Bearer <LITELLM_API_KEY>`.
+
+Model eligibility is data-driven. Explicit gateway metadata such as input
+modalities or model mode is used when available; exact-ID local overrides live
+in `config/model_capabilities.yaml`. Confirmed non-text models are hidden by
+default and rejected by the run API. Models without capability metadata remain
+selectable and are labeled **Text unverified**. The application never infers a
+capability from substrings in a model name.
 
 ### 7.2 Request shape
 
@@ -358,7 +366,7 @@ schema_version: 1
 task_id: ciu_scoring
 title: Correct Information Unit (CIU) Scoring
 category: discourse
-version: "0.2.0"
+version: "0.3.0"
 description: >
   The model counts total words and Correct Information Units in a
   transcribed discourse sample.
@@ -367,10 +375,10 @@ references:
 
 gold:
   file: gold_ciu_scoring.txt
-  parser: kv
+  parser: ciu_token_table
 
 input:
-  fields: [transcript]
+  renderer: numbered_tokens
   optional_fields: [stimulus, duration_seconds]
 
 prompt:
@@ -379,40 +387,44 @@ prompt:
     discourse analysis. Follow the scoring rules exactly. Reply with the
     requested JSON object and nothing else.
   user_template: |
-    SCORING RULES (replace with your lab's CIU rules):
-    - Count every word in the transcript according to the counting rules below.
-    - A word is a CIU if it is intelligible in context, accurate in relation to
-      the stimulus or topic, and relevant to and informative about it.
-    - <fillers, repetitions, revisions, unintelligible material: state the rules>
+    SCORE IN TWO PASSES.
+    Apply the task's documented word-identification and CIU rules to the fixed
+    numbered tokens. Do not merge, split, add, remove, or reorder tokens.
 
-    Transcript:
-    {transcript}
+    Numbered transcript tokens:
+    {numbered_tokens}
 
-    Return JSON: {"total_words": <integer>, "ciu_count": <integer>}
+    Return JSON with sorted unique token indices:
+    {"word_indices": [1, 2], "ciu_indices": [1]}
 
 output:
   format: json
   schema:
     type: object
-    required: [total_words, ciu_count]
+    required: [word_indices, ciu_indices]
     properties:
-      total_words: {type: integer, minimum: 0}
-      ciu_count:   {type: integer, minimum: 0}
-    additionalProperties: true
+      word_indices: {type: array, items: {type: integer, minimum: 1}, uniqueItems: true}
+      ciu_indices: {type: array, items: {type: integer, minimum: 1}, uniqueItems: true}
+    additionalProperties: false
 
 derived:
+  - {name: total_words, function: length, args: [word_indices]}
+  - {name: ciu_count, function: length, args: [ciu_indices]}
   - {name: percent_ciu, function: percentage, args: [ciu_count, total_words]}
   - {name: ciu_per_minute, function: per_minute, args: [ciu_count, duration_seconds], optional: true}
 
 comparison:
-  type: numeric_fields
+  type: ciu_token_labels
   fields: [total_words, ciu_count, percent_ciu]
   tolerance: {total_words: 0, ciu_count: 0, percent_ciu: 0.5}
 
 headline: {stat: mean_abs_diff, field: ciu_count, better: lower}
 ```
 
-`percent_ciu` and `ciu_per_minute` are always computed by the app, from the model's counts and from the gold counts, with the same formula. The model is never asked to do that arithmetic.
+The app derives `total_words`, `ciu_count`, `percent_ciu`, and optional
+`ciu_per_minute` from the returned indices. This preserves count comparisons
+while also exposing exactly which tokens the model classified as non-word,
+word/non-CIU, or CIU.
 
 ### 8.3 Task: `pos_breakdown`
 
@@ -523,21 +535,17 @@ See `docs/adding-a-task.md` for the full walkthrough.
 
 Gold answers for a task live in `gold_tasks/gold_<task_id>.txt`, UTF-8 plain text. The directory can be changed with `GOLD_TASKS_DIR`. The task file's `gold.parser` selects how the gold sections are read, so new formats are added by registering a parser, not by changing the loader.
 
-### 9.1 Default text layout (proposed)
-
-This layout is a proposal and is not yet matched to the real maintainer-supplied files. See [section 22](#22-open-questions-and-assumptions). The parser registry exists so the real format can be supported with a small parser if it differs.
+### 9.1 Default text layout
 
 ```
 # Lines starting with '#' outside a text block are comments.
 === item: sample_001 ===
 [input]
 duration_seconds: 95
-[input.transcript]
-Free text of the transcript, any number of lines,
-until the next section marker.
 [gold]
-total_words: 112
-ciu_count: 74
+1<TAB>1<TAB>The<TAB>WORD<TAB>CIU
+2<TAB>1<TAB>um<TAB>NOT_WORD<TAB>NA
+3<TAB>1<TAB>dog<TAB>WORD<TAB>CIU
 ```
 
 - `=== item: <id> ===` starts an item. IDs are unique within a file.
@@ -549,8 +557,9 @@ Built-in parsers:
 
 | Parser | `[gold]` content | Used by |
 |--------|------------------|---------|
-| `kv` | Lines of `key: value`. Numbers are parsed as numbers. | `ciu_scoring` |
-| `token_table` | One token per line: `index<TAB>token<TAB>tag`. Tokens also supply the model input. | `pos_breakdown` |
+| `kv` | Lines of `key: value`. Numbers are parsed as numbers. | General numeric tasks |
+| `token_table` | `index<TAB>token<TAB>tag`, or `index<TAB>utterance<TAB>token<TAB>tag`. | `pos_breakdown` |
+| `ciu_token_table` | `index<TAB>utterance<TAB>token<TAB>WORD\|NOT_WORD<TAB>CIU\|NOT_CIU\|NA`. | `ciu_scoring` |
 
 Example for `token_table`:
 
@@ -585,12 +594,18 @@ The comparison layer is arithmetic only. It reads the model's parsed answer and 
 
 ### 10.2 Built-in comparators
 
-**`numeric_fields`** (used by `ciu_scoring`)
+**`numeric_fields`**
 
 | Per item | Model value, gold value, signed difference (model − gold), absolute difference, within tolerance (yes/no) for each listed field. |
 |---|---|
 | Item match | All listed fields within tolerance. Tolerance defaults to exact equality. |
 | Aggregate per (model, task) | Items run, parse failures, item match rate (a parse failure counts as no match), per field: mean absolute difference, mean signed difference (shows a bias toward over- or under-counting), exact-match rate. |
+
+**`ciu_token_labels`** (used by `ciu_scoring`)
+
+| Per item | The same numeric count differences, plus a three-state label for every fixed token: non-word, word/non-CIU, or CIU. Out-of-range indices and CIU indices not also marked as words are alignment problems. |
+|---|---|
+| Aggregate per (model, task) | Numeric aggregates plus mean token-label agreement and mean word-label agreement. |
 
 **`token_tags`** (used by `pos_breakdown`)
 
@@ -669,7 +684,7 @@ Responsive Bootstrap layout with a dark cobalt visual system, bento-grid content
 
 ### 12.1 Select page (`/`)
 
-- **Models:** searchable checklist from LiteLLM with pricing-status badges, select all and clear, and presets saved in browser `localStorage`.
+- **Models:** searchable checklist from LiteLLM with pricing and text-capability badges, select all and clear, and presets saved in browser `localStorage`. Confirmed non-text models are hidden by default; a toggle reveals them disabled with the reason.
 - **Tasks:** one card per task showing category, description, item count, and gold status. Tasks with a missing or invalid task or gold file are disabled with the reason shown. Cards are generated from the loaded task files, so a new task appears with no UI change.
 - **Settings drawer:** temperature, max output tokens, repetitions, item limit per task.
 - **Sticky run summary:** "3 models × 2 tasks × 120 items = 720 requests", with a rough cost range when pricing is known. A confirmation modal appears above a configurable request count.
@@ -683,8 +698,9 @@ Live progress first (overall bar, per-model rows, cancel), then tabs that fill a
 3. **Task detail:** a task selector, then the comparator's view.
    - `ciu_scoring`: per model, a table of items with model versus gold for `total_words`, `ciu_count`, and `percent_ciu`, signed differences, and a scatter of model CIU count versus gold CIU count with an identity line.
    - `pos_breakdown`: per model, gold versus model counts per POS category (grouped bars), token agreement, derived ratios, and alignment problems.
-4. **Items:** every item with the input, the gold answer, each model's parsed answer, differences, and an expandable raw output. Filters: disagreements only, parse failures only, alignment problems only.
-5. **Run info:** settings, concurrency, task and prompt hashes, gold file hashes, app version, timestamps. Enough to reproduce the run.
+4. **Token analysis:** an utterance-by-utterance rendering that joins CIU and POS results by fixed token index. Select the repetition and switch between model, gold, and difference views; badges show word/non-word, CIU/non-CIU, and POS.
+5. **Items:** every item with the input, gold answer, parsed answer, differences, raw output, and safe response diagnostics. Filters cover disagreements, all failures, and alignment problems.
+6. **Run info:** settings, concurrency, task and prompt hashes, gold file hashes, app version, timestamps. Enough to reproduce the run.
 
 Every cost is labeled "estimated". Token counts from the fallback estimator are marked "est.".
 
@@ -769,8 +785,9 @@ The threat model is a single user on a trusted machine. The main risks are leaki
 
 ## 17. Error handling and reliability
 
-- Failures are per job. One failing model does not stop the run. Failed jobs are listed, counted, and shown in the item table.
+- Failures are per job. One failing model does not stop the run. Failed jobs are listed, counted, and shown in overview, task detail, and item views.
 - Parse failures, alignment problems, and request errors are separate categories in the results.
+- Empty final content, reasoning-only responses, output-token exhaustion, and malformed response envelopes receive generic diagnostics based on the OpenAI-compatible response fields. No provider- or model-specific response adapter is required, and reasoning text is not persisted in diagnostics.
 - A run left in `running` when the server restarts is marked `interrupted` at startup. Resume is planned for v0.2.
 - Cancel is cooperative: in-flight requests finish, queued jobs are dropped.
 - If `/models` is unreachable, the select page shows the error with a retry button and still lists tasks.
@@ -780,7 +797,7 @@ The threat model is a single user on a trusted machine. The main risks are leaki
 
 ## 18. Testing and CI
 
-- **Unit tests:** gold parsers (valid, malformed, duplicate IDs), task validation, restricted prompt rendering, JSON extraction (code fences, extra prose, malformed), derived functions (including zero denominators), both comparators with hand-computed expectations, cost resolution across all four sources.
+- **Unit tests:** gold parsers (valid, malformed, duplicate IDs), task validation, restricted prompt rendering, JSON extraction (code fences, extra prose, malformed), derived functions (including zero denominators), all comparators with hand-computed expectations, cost resolution across all four sources.
 - **Integration tests:** Flask test client tests may call the live LiteLLM endpoint when
   they exercise gateway behavior. They read credentials from `.env`, never print the
   key, and must use tiny requests suitable for the configured account. Deterministic
@@ -883,8 +900,8 @@ Citation metadata will live in `CITATION.cff`.
 
 Decisions made in this spec that the maintainers should confirm or correct:
 
-1. **Gold file internals.** The file name `gold_<task_id>.txt` is fixed, but the layout in section 9.1 is a proposal. Supply a few lines of each real gold file so the default parsers can be matched to them.
-2. **CIU granularity.** The task compares counts (`total_words`, `ciu_count`) and derives `percent_ciu`. It does not compare word-level CIU marks. Word-level comparison needs gold with per-word marks. Also unconfirmed: whether the model should count total words itself (current spec) or the app should count them deterministically, which separates counting ability from CIU judgment.
+1. **Gold file internals.** The bundled CIU and POS references now use fixed, numbered token tables. Additional datasets must follow the documented parser format or add a parser plugin.
+2. **CIU granularity.** The model classifies fixed token indices as words and CIUs. The app derives all counts and compares both counts and token-level labels. This intentionally evaluates word identification and CIU judgment while removing tokenization drift.
 3. **POS authority.** The current Cat Rescue POS file uses documented Universal
    Dependencies v2 conventions and fixed pre-tokenized input, but its labels
    are a provisional development reference rather than an independently

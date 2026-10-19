@@ -6,6 +6,7 @@ from aphasia_eval.comparison.derived import (
     DerivedValueError,
     counts_by,
     derive_values,
+    length,
     per_minute,
     percentage,
     ratio,
@@ -30,6 +31,13 @@ def test_counts_by_handles_values_empty_and_bad_inputs():
     assert counts_by(None) is None
     assert counts_by("NOUN") is None
     assert counts_by(["NOUN", 1]) is None
+
+
+def test_length_handles_arrays_and_rejects_other_values():
+    assert length([1, 2, 3]) == 3
+    assert length([]) == 0
+    assert length(None) is None
+    assert length("three") is None
 
 
 def test_derived_values_resolve_lists_inputs_and_prior_values():

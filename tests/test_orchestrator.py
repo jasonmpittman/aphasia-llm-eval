@@ -72,7 +72,7 @@ class RaisingClient:
 
 def _successful_completion():
     return CompletionResult(
-        raw_text='{"total_words": 3, "ciu_count": 3}',
+        raw_text='{"word_indices": [1, 2, 3], "ciu_indices": [1, 2, 3]}',
         prompt_tokens=4,
         completion_tokens=2,
         reasoning_tokens=None,

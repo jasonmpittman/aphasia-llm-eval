@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
-from .parsers import GoldParseError, GoldParser, ParsedGold, SourceLine, parse_kv, parse_token_table
+from .parsers import (
+    GoldParseError,
+    GoldParser,
+    ParsedGold,
+    SourceLine,
+    parse_ciu_token_table,
+    parse_kv,
+    parse_token_table,
+)
 
 GOLD_PARSERS: dict[str, GoldParser] = {
     "kv": parse_kv,
     "token_table": parse_token_table,
+    "ciu_token_table": parse_ciu_token_table,
 }
 
 

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, current_app, jsonify
 
 from aphasia_eval.extensions import get_litellm_client, get_pricing_service
+from aphasia_eval.services.model_capabilities import (
+    load_capability_overrides,
+    resolve_text_capability,
+)
 
 blueprint = Blueprint("models_api", __name__)
 
@@ -16,9 +20,11 @@ def list_models():
     client = get_litellm_client()
     pricing = get_pricing_service()
     discovery = client.list_models()
+    overrides = load_capability_overrides(current_app.config["MODEL_CAPABILITIES_PATH"])
     pricing.refresh_proxy_pricing()
     models = []
     for model_id in discovery.models:
+        capability = resolve_text_capability(model_id, discovery.metadata.get(model_id), overrides)
         if model_id in pricing.overrides:
             price_source = "override"
             token_pricing = pricing.overrides[model_id]
@@ -38,6 +44,10 @@ def list_models():
                 "output_usd_per_1m_tokens": (
                     token_pricing.output_cost_per_token * 1_000_000 if token_pricing else None
                 ),
+                "text_capability": capability.status,
+                "capability_reason": capability.reason,
+                "capability_source": capability.source,
+                "selectable": capability.status != "unsupported",
             }
         )
     return jsonify(

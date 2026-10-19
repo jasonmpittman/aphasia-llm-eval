@@ -49,14 +49,21 @@ def test_plain_and_numbered_token_renderers():
     ciu = _read_task("ciu_scoring")
     prompt = render_prompt(
         ciu,
-        {"transcript": "Birds sing.", "stimulus": "Synthetic", "duration_seconds": 2},
+        {
+            "tokens": [
+                {"i": 1, "utterance": 1, "token": "Birds"},
+                {"i": 2, "utterance": 1, "token": "sing"},
+            ],
+            "stimulus": "Synthetic",
+            "duration_seconds": 2,
+        },
     )
-    assert "Birds sing." in prompt.user
+    assert "Utterance 1:\n1\tBirds\n2\tsing" in prompt.user
     assert "Stimulus or topic:\nSynthetic" in prompt.user
     assert 'Never count "and" as a CIU.' in prompt.user
     assert "Split contractions into their constituent words" in prompt.user
     assert "replace with your lab's CIU rules" not in prompt.user
-    assert '{"total_words": <integer>, "ciu_count": <integer>}' in prompt.user
+    assert '"word_indices": [<indices counted as words>]' in prompt.user
 
     pos = _read_task("pos_breakdown")
     prompt = render_prompt(
@@ -79,11 +86,14 @@ def test_clinically_reviewed_cat_rescue_gold_matches_annotation():
 
     assert result.enabled, result.errors
     assert result.task is not None and result.task.gold is not None
-    assert result.task.config["version"] == "0.2.0"
+    assert result.task.config["version"] == "0.3.0"
     assert len(result.task.gold.items) == 1
     item = result.task.gold.items[0]
     assert item.item_id == "cat_rescue_001"
-    assert item.gold == {"total_words": 65, "ciu_count": 57}
+    assert item.gold["token_count"] == 69
+    assert len(item.gold["word_indices"]) == 65
+    assert len(item.gold["ciu_indices"]) == 57
+    assert set(item.gold["ciu_indices"]).issubset(item.gold["word_indices"])
 
 
 def test_provisional_cat_rescue_pos_reference_matches_annotation():
@@ -101,8 +111,12 @@ def test_provisional_cat_rescue_pos_reference_matches_annotation():
     assert item.item_id == "cat_rescue_001"
     assert len(item.inputs["tokens"]) == 69
     assert len(item.gold["tags"]) == 69
-    assert item.inputs["tokens"][0] == {"i": 1, "token": "um"}
-    assert item.inputs["tokens"][-1] == {"i": 69, "token": "singing"}
+    assert item.inputs["tokens"][0] == {"i": 1, "utterance": 1, "token": "um"}
+    assert item.inputs["tokens"][-1] == {
+        "i": 69,
+        "utterance": 6,
+        "token": "singing",
+    }
     assert Counter(tag["pos"] for tag in item.gold["tags"]) == {
         "ADJ": 1,
         "ADP": 5,
@@ -121,10 +135,10 @@ def test_provisional_cat_rescue_pos_reference_matches_annotation():
 @pytest.mark.parametrize(
     "template, message",
     [
-        ("{transcript.value}", "unsafe placeholder"),
-        ("{transcript[0]}", "unsafe placeholder"),
-        ("{transcript!r}", "must not use conversion"),
-        ("{transcript:>10}", "must not use conversion or formatting"),
+        ("{stimulus.value}", "unsafe placeholder"),
+        ("{stimulus[0]}", "unsafe placeholder"),
+        ("{stimulus!r}", "must not use conversion"),
+        ("{stimulus:>10}", "must not use conversion or formatting"),
         ("{undeclared}", "undeclared placeholder"),
         ("an unmatched { brace", "invalid braces"),
     ],
@@ -139,7 +153,7 @@ def test_restricted_prompt_rendering_rejects_unsafe_fields(template, message):
 
 def test_rendering_rejects_missing_or_bad_renderer_inputs():
     ciu = _read_task("ciu_scoring")
-    with pytest.raises(ValueError, match="missing required input"):
+    with pytest.raises(ValueError, match="non-empty tokens list"):
         render_prompt(ciu, {})
 
     pos = _read_task("pos_breakdown")
@@ -180,10 +194,7 @@ def test_schema_filename_bad_number_and_unknown_inputs_disable_task(tmp_path):
         (ROOT / "tasks/ciu_scoring.yaml").read_text(encoding="utf-8"), encoding="utf-8"
     )
     (gold_dir / "gold_ciu_scoring.txt").write_text(
-        "=== item: bad ===\n"
-        "[input]\nunknown: field\n"
-        "[input.transcript]\nSynthetic words.\n"
-        "[gold]\ntotal_words: not-a-number\nciu_count: 2\n",
+        "=== item: bad ===\n[input]\nunknown: field\n[gold]\n1\t1\tSynthetic\tWORD\tCIU\n",
         encoding="utf-8",
     )
 
@@ -198,7 +209,6 @@ def test_schema_filename_bad_number_and_unknown_inputs_disable_task(tmp_path):
     )
     result = load_task_file(task_path, gold_dir=gold_dir, schema_path=SCHEMA_PATH)
     assert any("unknown input field" in error for error in result.errors)
-    assert any("gold output error at total_words" in error for error in result.errors)
 
 
 def test_task_schema_and_output_schema_failures_are_reported(tmp_path):
@@ -218,11 +228,11 @@ def test_task_schema_and_output_schema_failures_are_reported(tmp_path):
     assert any("invalid output JSON Schema" in error for error in result.errors)
 
     invalid_task = _read_task("ciu_scoring")
-    invalid_task["derived"][0]["args"] = ["ciu_count"]
+    invalid_task["derived"][0]["args"] = ["ciu_count", "word_indices"]
     path.write_text(yaml.safe_dump(invalid_task), encoding="utf-8")
     result = load_task_file(path, gold_dir=tmp_path, schema_path=SCHEMA_PATH)
     assert result.task is None
-    assert any("too short" in error for error in result.errors)
+    assert any("too long" in error for error in result.errors)
 
 
 def test_cli_reports_success_and_failure(capsys, tmp_path):

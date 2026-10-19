@@ -617,6 +617,57 @@ a:focus-visible {
   box-shadow: 0 0 0 0.23rem color-mix(in srgb, var(--teal) 24%, transparent);
 }
 
+.model-option input:disabled + label {
+  border-color: color-mix(in srgb, var(--coral) 26%, var(--line));
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.model-option input:disabled + label:hover {
+  transform: none;
+}
+
+.model-badges {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 0.3rem;
+  justify-items: end;
+}
+
+.capability-badge {
+  display: inline-flex;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.capability-supported {
+  background: var(--teal-soft);
+  color: var(--teal-dark);
+}
+
+.capability-unknown {
+  background: color-mix(in srgb, var(--amber) 12%, var(--surface));
+  color: var(--amber);
+}
+
+.capability-unsupported {
+  background: color-mix(in srgb, var(--coral) 14%, var(--surface));
+  color: var(--coral);
+}
+
+.model-capability-reason {
+  margin: 0.4rem 0.7rem 0;
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+}
+
+.model-compatibility-toggle {
+  margin: 0.55rem 0 0;
+}
+
 .model-name {
   overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -1076,6 +1127,10 @@ a:focus-visible {
 .heat-2 { background: color-mix(in srgb, var(--teal) 16%, transparent) !important; }
 .heat-3 { background: color-mix(in srgb, var(--teal) 24%, transparent) !important; }
 .heat-4 { background: color-mix(in srgb, var(--teal) 32%, transparent) !important; }
+.heat-error {
+  background: color-mix(in srgb, var(--coral) 15%, transparent) !important;
+  color: var(--coral) !important;
+}
 
 .sort-button {
   padding: 0;
@@ -1115,6 +1170,162 @@ a:focus-visible {
 
 .detail-model-block {
   margin-bottom: 2rem;
+}
+
+.failure-panel,
+.token-analysis-notice {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--coral) 30%, var(--line));
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--coral) 7%, var(--surface));
+}
+
+.failure-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.failure-list li span {
+  display: block;
+  color: var(--ink-muted);
+  font-size: 0.83rem;
+}
+
+.token-analysis-toolbar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(9rem, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.token-analysis-notice p {
+  margin: 0;
+  color: var(--coral);
+}
+
+.token-analysis-notice p + p {
+  margin-top: 0.35rem;
+}
+
+.token-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: rgba(7, 16, 38, 0.48);
+}
+
+.token-disagreement-key {
+  color: var(--ink-muted);
+  font-size: 0.76rem;
+}
+
+.utterance-card {
+  margin-bottom: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: rgba(7, 16, 38, 0.42);
+}
+
+.utterance-label {
+  margin-bottom: 0.8rem;
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.token-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: flex-start;
+}
+
+.annotated-token {
+  position: relative;
+  display: inline-grid;
+  min-width: 4.4rem;
+  gap: 0.35rem;
+  justify-items: center;
+  padding: 0.65rem 0.55rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: var(--surface-subtle);
+}
+
+.annotated-token.token-disagreement {
+  border: 2px solid var(--coral);
+  padding: calc(0.65rem - 1px) calc(0.55rem - 1px) calc(0.55rem - 1px);
+}
+
+.token-index {
+  position: absolute;
+  top: 0.18rem;
+  left: 0.3rem;
+  color: #667ba7;
+  font-size: 0.58rem;
+}
+
+.token-text {
+  font-size: 0.92rem;
+}
+
+.token-labels {
+  display: grid;
+  gap: 0.25rem;
+  justify-items: center;
+}
+
+.annotation-badge {
+  display: inline-flex;
+  padding: 0.18rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.61rem;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.annotation-ciu {
+  background: var(--teal-soft);
+  color: var(--teal-dark);
+}
+
+.annotation-not-ciu {
+  background: color-mix(in srgb, var(--amber) 13%, var(--surface));
+  color: var(--amber);
+}
+
+.annotation-not-word {
+  background: color-mix(in srgb, var(--coral) 12%, var(--surface));
+  color: var(--coral);
+}
+
+.annotation-pos {
+  background: color-mix(in srgb, var(--cyan) 12%, var(--surface));
+  color: var(--cyan);
+}
+
+.annotation-unavailable {
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+}
+
+.result-error-message {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--coral) 25%, var(--line));
+  border-radius: 0.6rem;
+  color: var(--coral);
 }
 
 .filter-bar {
@@ -1405,6 +1616,10 @@ a:focus-visible {
   }
 
   .item-result-body {
+    grid-template-columns: 1fr;
+  }
+
+  .token-analysis-toolbar {
     grid-template-columns: 1fr;
   }
 

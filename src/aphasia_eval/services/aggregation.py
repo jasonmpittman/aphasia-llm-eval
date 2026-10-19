@@ -96,8 +96,17 @@ def _aggregate_group(results: Sequence[Result], task: Mapping[str, Any]) -> list
     values.extend(_efficiency_values(active))
 
     comparison_type = task["comparison"]["type"]
-    if comparison_type == "numeric_fields":
+    if comparison_type in {"numeric_fields", "ciu_token_labels"}:
         values.extend(_numeric_values(comparable, task))
+        if comparison_type == "ciu_token_labels":
+            agreements = [
+                result.comparison_json["statistics"]["token_label_agreement"]
+                for result in comparable
+                if result.comparison_json["statistics"]["token_label_agreement"] is not None
+            ]
+            values.append(
+                AggregateValue("token_label_agreement", _mean(agreements), len(agreements))
+            )
     elif comparison_type == "token_tags":
         values.extend(_token_values(comparable, task))
 

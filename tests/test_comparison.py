@@ -59,6 +59,58 @@ def test_numeric_fields_missing_value_is_a_non_match():
     )
 
 
+def test_ciu_token_labels_reports_three_states_and_alignment_errors():
+    task = {
+        "comparison": {
+            "type": "ciu_token_labels",
+            "fields": ["total_words", "ciu_count", "percent_ciu"],
+            "tolerance": {"total_words": 0, "ciu_count": 0, "percent_ciu": 0.5},
+        },
+        "derived": [
+            {"name": "total_words", "function": "length", "args": ["word_indices"]},
+            {"name": "ciu_count", "function": "length", "args": ["ciu_indices"]},
+            {
+                "name": "percent_ciu",
+                "function": "percentage",
+                "args": ["ciu_count", "total_words"],
+            },
+        ],
+        "headline": {"stat": "mean_abs_diff", "field": "ciu_count", "better": "lower"},
+    }
+    gold = {"token_count": 4, "word_indices": [1, 2, 4], "ciu_indices": [1, 4]}
+    model = {"word_indices": [1, 2, 3], "ciu_indices": [1, 3, 5]}
+
+    outcome = compare_answers(task, model, gold)
+
+    assert outcome.matched is False
+    assert [row["gold"] for row in outcome.details["tokens"]] == [
+        "ciu",
+        "not_ciu",
+        "not_word",
+        "ciu",
+    ]
+    assert outcome.details["token_label_agreement"] == 0.5
+    assert outcome.details["out_of_range_indices"] == [5]
+    assert outcome.details["ciu_not_word_indices"] == [5]
+    assert outcome.statistics["alignment_problem"] is True
+    assert outcome.view_descriptor["token_annotations"] is True
+
+
+def test_ciu_token_labels_validates_gold_contract():
+    comparator = get_comparator("ciu_token_labels")
+    task = {
+        "comparison": {"type": "ciu_token_labels", "fields": []},
+        "headline": {"stat": "mean_abs_diff", "field": "ciu_count", "better": "lower"},
+    }
+    errors = comparator.validate_gold(
+        task,
+        {"token_count": 2, "word_indices": [1, 1], "ciu_indices": [2, 3]},
+    )
+    assert "CIU token gold word_indices contains duplicate indices" in errors
+    assert "CIU token gold ciu_indices contains an out-of-range index" in errors
+    assert "CIU token gold ciu_indices must be a subset of word_indices" in errors
+
+
 def _token_task():
     return {
         "tagset": ["DET", "NOUN", "VERB"],

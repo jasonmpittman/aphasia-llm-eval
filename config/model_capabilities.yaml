@@ -1,0 +1,6 @@
+# Exact-model capability overrides. This is data, not application logic.
+# Models absent here use gateway metadata; otherwise their status is unknown.
+models:
+  Qwen3-ASR-1.7B:
+    text_analysis: false
+    reason: Automatic speech-recognition model; it does not accept text-analysis prompts.

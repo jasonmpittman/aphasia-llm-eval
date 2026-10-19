@@ -2,80 +2,75 @@
 # Derived from the approved, deidentified Cat Rescue transcript on 2026-10-19.
 # Replace this file when a qualified reviewer supplies an authoritative POS analysis.
 # See annotations/cat_rescue_001_pos.md for conventions and review status.
+# Columns: index, utterance, token, UPOS tag.
 === item: cat_rescue_001 ===
 [gold]
-# Utterance 1
-1	um	INTJ
-2	the	DET
-3	little	ADJ
-4	girl	NOUN
-5	wants	VERB
-6	her	PRON
-7	cat	NOUN
-8	that	PRON
-9	climbed	VERB
-10	up	ADV
-11	in	ADP
-12	a	DET
-13	tree	NOUN
-# Utterance 2
-14	and	CCONJ
-15	so	ADV
-16	the	DET
-17	man	NOUN
-18	got	VERB
-19	up	ADP
-20	the	DET
-21	tree	NOUN
-22	to	PART
-23	retrieve	VERB
-24	the	DET
-25	cat	NOUN
-# Utterance 3
-26	um	INTJ
-27	and	CCONJ
-28	the	DET
-29	ladder	NOUN
-30	fell	VERB
-31	out	ADV
-32	behind	ADP
-33	him	PRON
-# Utterance 4
-34	and	CCONJ
-35	the	DET
-36	dog	NOUN
-37	is	AUX
-38	barking	VERB
-39	at	ADP
-40	all	DET
-41	the	DET
-42	excitement	NOUN
-# Utterance 5
-43	and	CCONJ
-44	the	DET
-45	firemen	NOUN
-46	are	AUX
-47	coming	VERB
-48	to	PART
-49	rescue	VERB
-50	uh	INTJ
-51	I	PRON
-52	assume	VERB
-53	the	DET
-54	cat	NOUN
-55	and	CCONJ
-56	the	DET
-57	man	NOUN
-# Utterance 6
-58	and	CCONJ
-59	uh	INTJ
-60	there	PRON
-61	is	AUX
-62	a	DET
-63	bird	NOUN
-64	on	ADP
-65	another	DET
-66	branch	NOUN
-67	that	PRON
-68	is	AUX
-69	singing	VERB
+1	1	um	INTJ
+2	1	the	DET
+3	1	little	ADJ
+4	1	girl	NOUN
+5	1	wants	VERB
+6	1	her	PRON
+7	1	cat	NOUN
+8	1	that	PRON
+9	1	climbed	VERB
+10	1	up	ADV
+11	1	in	ADP
+12	1	a	DET
+13	1	tree	NOUN
+14	2	and	CCONJ
+15	2	so	ADV
+16	2	the	DET
+17	2	man	NOUN
+18	2	got	VERB
+19	2	up	ADP
+20	2	the	DET
+21	2	tree	NOUN
+22	2	to	PART
+23	2	retrieve	VERB
+24	2	the	DET
+25	2	cat	NOUN
+26	3	um	INTJ
+27	3	and	CCONJ
+28	3	the	DET
+29	3	ladder	NOUN
+30	3	fell	VERB
+31	3	out	ADV
+32	3	behind	ADP
+33	3	him	PRON
+34	4	and	CCONJ
+35	4	the	DET
+36	4	dog	NOUN
+37	4	is	AUX
+38	4	barking	VERB
+39	4	at	ADP
+40	4	all	DET
+41	4	the	DET
+42	4	excitement	NOUN
+43	5	and	CCONJ
+44	5	the	DET
+45	5	firemen	NOUN
+46	5	are	AUX
+47	5	coming	VERB
+48	5	to	PART
+49	5	rescue	VERB
+50	5	uh	INTJ
+51	5	I	PRON
+52	5	assume	VERB
+53	5	the	DET
+54	5	cat	NOUN
+55	5	and	CCONJ
+56	5	the	DET
+57	5	man	NOUN
+58	6	and	CCONJ
+59	6	uh	INTJ
+60	6	there	PRON
+61	6	is	AUX
+62	6	a	DET
+63	6	bird	NOUN
+64	6	on	ADP
+65	6	another	DET
+66	6	branch	NOUN
+67	6	that	PRON
+68	6	is	AUX
+69	6	singing	VERB

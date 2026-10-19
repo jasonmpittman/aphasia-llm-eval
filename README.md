@@ -872,9 +872,29 @@ pytest
 | Version | Scope |
 |---------|-------|
 | **v0.1** | This document: model and task selection, configurable task system, CIU scoring and POS breakdown tasks, gold file loading, comparison with gold, efficiency metrics, four export formats, CI, Docker |
-| **v0.2** | Streaming with time to first token, run resume, side-by-side diff of two runs, prompt variants per task, per-category precision and recall for tagging tasks |
+| **v0.2** | Parameter-ablation studies, streaming with time to first token, run resume, side-by-side diff of two runs, prompt variants per task, richer per-label metrics, and release hardening |
 | **v0.3** | Picture-based tasks (multimodal input) for vision-capable models |
 | **Later** | More benchmarks as task files (for example aphasia type classification, paraphasia error classification), additional languages, opt-in LLM-as-judge for open-ended tasks |
+
+### v0.2 beta milestones
+
+The token-level CIU/POS analysis, model-capability filtering, and generic
+response diagnostics were completed after the v0.1 beta baseline. The
+remaining milestones are:
+
+| Milestone | Scope | Status |
+|-----------|-------|--------|
+| **M7: Ablation studies** | Add an opt-in experiment mode that expands a run across declared parameter conditions. Begin with `max_tokens`; keep temperature and prompt fixed, support repetitions, include failed responses in coverage statistics, record requested versus accepted parameters, and show the expanded request/cost estimate before launch. Add an Ablation tab with accuracy, valid-response rate, truncation, variability, cost, latency, and Pareto views. Ordinary result tabs may switch between the baseline and a per-model/per-task best-observed condition, with the selection rule and same-dataset limitation shown explicitly. Export every condition and its provenance. | Planned |
+| **M8: Richer agreement metrics** | Add per-label precision, recall, and F1 for POS and CIU token labels, plus confusion matrices and repetition summaries. Keep raw agreement and count-error metrics; do not collapse unlike tasks into a composite score. | Planned |
+| **M9: Experiment comparison** | Add first-class prompt variants and side-by-side comparison of two runs or conditions, including prompt/task/gold hashes and signed metric changes. | Planned |
+| **M10: Execution continuity** | Add streamed completions with time-to-first-token measurement and resumable interrupted runs without duplicating completed jobs. | Planned |
+| **M11: v0.2 beta readiness** | Add schema migration/versioning for existing SQLite databases, extend exports and documentation for experiments, run live cross-model compatibility checks, complete accessibility and browser smoke tests, and update package and citation versions for the beta release. | Planned |
+
+“Best observed” is exploratory when selected on the same gold items used for
+reporting. A defensible model-selection workflow requires development items to
+choose a condition and separate held-out items to report its performance. With
+only one current Cat Rescue item, ablation results can demonstrate behavior and
+identify failure thresholds, but cannot establish a reliable optimal setting.
 
 ---
 

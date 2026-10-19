@@ -33,19 +33,21 @@
     itemPage: 1,
     itemPageSize: 25,
     efficiencySort: {key: "model_id", ascending: true},
-    efficiencyChart: null,
+    efficiencyCharts: [],
     detailChart: null,
-    ablationPerformanceChart: null,
-    ablationParetoChart: null,
-    resultMode: "baseline",
+    ablationCharts: [],
+    resultMode: null,
     source: null,
     refreshTimer: null,
   };
 
   function activeCondition(modelId, taskId) {
-    if (state.resultMode === "best" && state.detail?.ablation?.enabled) {
-      return state.detail.ablation.best_conditions.find((entry) => entry.model_id === modelId && entry.task_id === taskId)?.condition_id || "baseline";
+    if (!state.detail?.ablation?.enabled) return "baseline";
+    if (state.resultMode === "closest") {
+      const entries = state.detail.ablation.closest_conditions || state.detail.ablation.best_conditions;
+      return entries.find((entry) => entry.model_id === modelId && entry.task_id === taskId)?.condition_id || "baseline";
     }
+    if (state.resultMode?.startsWith("condition:")) return state.resultMode.slice(10);
     return "baseline";
   }
 
@@ -67,6 +69,81 @@
 
   function tasks() {
     return state.detail?.tasks.map((task) => task.task_id) || [];
+  }
+
+  function conditionById(conditionId) {
+    return state.detail?.ablation?.conditions.find((condition) => condition.condition_id === conditionId) || {
+      condition_id: conditionId,
+      label: conditionId === "baseline" ? "Baseline" : conditionId,
+      is_baseline: conditionId === "baseline",
+      parameter: null,
+      value: null,
+    };
+  }
+
+  function conditionName(conditionId) {
+    const condition = conditionById(conditionId);
+    if (!state.detail?.ablation?.enabled) return "Baseline configuration";
+    const parameter = condition.parameter?.replaceAll("_", " ") || "configuration";
+    const value = condition.value ?? state.detail.ablation.baseline_value;
+    return `${condition.is_baseline ? "Baseline · " : ""}${parameter}: ${formatNumber(value, 0)}`;
+  }
+
+  function pairSummaries(modelId, taskId) {
+    return (state.detail?.ablation?.summaries || []).filter((row) => row.model_id === modelId && row.task_id === taskId);
+  }
+
+  function closestEntry(modelId, taskId) {
+    const entries = state.detail?.ablation?.closest_conditions || state.detail?.ablation?.best_conditions || [];
+    return entries.find((entry) => entry.model_id === modelId && entry.task_id === taskId) || null;
+  }
+
+  function conditionSummary(modelId, taskId, conditionId = activeCondition(modelId, taskId)) {
+    return pairSummaries(modelId, taskId).find((row) => row.condition_id === conditionId) || null;
+  }
+
+  function conditionIsUsable(summary) {
+    return Boolean(summary && summary.headline !== null && (summary.comparable_response_rate || 0) > 0);
+  }
+
+  function headlineLabel(taskId) {
+    const headline = state.taskMeta.get(taskId)?.headline || {};
+    if (headline.stat === "mean_abs_diff" && headline.field === "ciu_count") return "Mean absolute CIU-count error";
+    if (headline.stat === "token_agreement") return "Token agreement";
+    return String(headline.stat || "Gold comparison").replaceAll("_", " ");
+  }
+
+  function formatHeadline(taskId, value) {
+    if (value === null || value === undefined) return "n/a";
+    const headline = state.taskMeta.get(taskId)?.headline || {};
+    return headline.stat?.includes("agreement")
+      ? `${formatNumber(value * 100, 1)}%`
+      : formatNumber(value, 3);
+  }
+
+  function baselineComparison(modelId, taskId, selectedValue) {
+    if (!state.detail?.ablation?.enabled || activeCondition(modelId, taskId) === "baseline") return null;
+    const baseline = conditionSummary(modelId, taskId, "baseline");
+    if (!conditionIsUsable(baseline)) return "Baseline did not produce a comparable result.";
+    const better = state.taskMeta.get(taskId)?.headline?.better || "lower";
+    const favorableChange = better === "higher"
+      ? selectedValue - baseline.headline
+      : baseline.headline - selectedValue;
+    if (Math.abs(favorableChange) < Number.EPSILON) return "Matches the baseline gold-comparison result.";
+    const direction = favorableChange > 0 ? "Improves on" : "Is worse than";
+    const magnitude = state.taskMeta.get(taskId)?.headline?.stat?.includes("agreement")
+      ? `${formatNumber(Math.abs(favorableChange) * 100, 1)} percentage points`
+      : formatNumber(Math.abs(favorableChange), 3);
+    return `${direction} baseline by ${magnitude}.`;
+  }
+
+  function failureSummary(items) {
+    const counts = new Map();
+    items.filter((item) => item.status !== "ok" && item.status !== "cancelled").forEach((item) => {
+      const label = item.status === "parse_failure" ? "parse failure" : item.comparison?.diagnostics?.error_code === "truncated" ? "truncation" : "request error";
+      counts.set(label, (counts.get(label) || 0) + 1);
+    });
+    return [...counts].map(([label, count]) => `${count} ${label}${count === 1 ? "" : "s"}`).join(" · ") || "No comparable answer";
   }
 
   function jobItems(modelId, taskId) {
@@ -125,53 +202,105 @@
     const cards = document.getElementById("overview-cards");
     cards.replaceChildren();
     const active = models().flatMap((model) => tasks().flatMap((task) => jobItems(model, task)));
-    const failures = active.filter((item) => item.status !== "ok" && item.status !== "cancelled");
+    const comparable = active.filter((item) => item.status === "ok");
     cards.append(metricCard(
-      "Failed jobs",
-      `${failures.length} / ${active.length}`,
-      failures.length ? "Open Items and filter failures for details." : "All jobs returned comparable output.",
+      "Comparable selected jobs",
+      `${comparable.length} / ${active.length}`,
+      comparable.length === active.length ? "Every selected result can be compared with gold." : "Failures remain visible and are not treated as low agreement.",
     ));
     tasks().forEach((taskId) => {
       const meta = state.taskMeta.get(taskId);
-      const candidates = models().map((model) => ({model, value: aggregate(model, taskId, "headline", meta?.headline?.field || null)})).filter((entry) => entry.value !== null);
-      candidates.sort((a, b) => (meta?.headline?.better === "lower" ? a.value - b.value : b.value - a.value));
+      const candidates = models().map((model) => {
+        const summary = conditionSummary(model, taskId);
+        return {
+          model,
+          value: aggregate(model, taskId, "headline", meta?.headline?.field || null),
+          coverage: summary?.comparable_response_rate ?? aggregate(model, taskId, "comparable_response_rate"),
+        };
+      }).filter((entry) => entry.value !== null);
+      candidates.sort((a, b) => {
+        const coverageDifference = (b.coverage || 0) - (a.coverage || 0);
+        if (coverageDifference) return coverageDifference;
+        return meta?.headline?.better === "lower" ? a.value - b.value : b.value - a.value;
+      });
       const best = candidates[0];
-      cards.append(metricCard(`Best · ${taskTitle(taskId)}`, best ? formatNumber(best.value, 3) : "n/a", best ? `${best.model} · ${meta?.headline?.stat || "headline"}` : "No comparable results"));
+      cards.append(metricCard(
+        `Closest · ${taskTitle(taskId)}`,
+        best ? formatHeadline(taskId, best.value) : "No valid result",
+        best ? `${best.model} · ${conditionName(activeCondition(best.model, taskId))} · ${formatNumber((best.coverage || 0) * 100, 1)}% comparable` : "No selected configuration produced a gold-comparable answer.",
+      ));
     });
-    const modelCosts = models().map((model) => ({model, value: tasks().reduce((sum, task) => sum + (aggregate(model, task, "estimated_cost_usd") || 0), 0)}));
-    const knownCosts = modelCosts.filter(({model}) => tasks().some((task) => aggregate(model, task, "estimated_cost_usd") !== null)).sort((a, b) => a.value - b.value);
-    if (knownCosts[0]) cards.append(metricCard("Lowest estimated cost", formatCurrency(knownCosts[0].value), knownCosts[0].model));
-    const times = models().map((model) => ({model, value: tasks().reduce((sum, task) => sum + (aggregate(model, task, "total_elapsed_ms") || 0), 0)})).filter((entry) => entry.value > 0).sort((a, b) => a.value - b.value);
-    if (times[0]) cards.append(metricCard("Fastest total request time", `${formatNumber(times[0].value / 1000, 2)} s`, times[0].model));
+    if (state.detail.ablation?.enabled) {
+      const recoveries = models().flatMap((model) => tasks().map((taskId) => ({
+        model,
+        taskId,
+        baseline: conditionSummary(model, taskId, "baseline"),
+        closest: closestEntry(model, taskId),
+      }))).filter((entry) => !conditionIsUsable(entry.baseline) && entry.closest?.has_comparable_result);
+      cards.append(metricCard(
+        "Recovered baseline failures",
+        String(recoveries.length),
+        recoveries.length ? "Another tested condition produced a comparable result." : "No failed baseline was rescued by another condition.",
+      ));
+    }
 
     const wrapper = element("div", {className: "table-responsive"});
-    const table = element("table", {className: "table align-middle"});
+    const table = element("table", {className: "table align-middle overview-table"});
     const headRow = element("tr", {}, [element("th", {scope: "col", text: "Model"})]);
     tasks().forEach((task) => headRow.append(element("th", {scope: "col", text: taskTitle(task)})));
     const body = element("tbody");
-    const allValues = tasks().flatMap((taskId) => {
+    const taskRanges = new Map(tasks().map((taskId) => {
       const field = state.taskMeta.get(taskId)?.headline?.field || null;
-      return models().map((model) => aggregate(model, taskId, "headline", field)).filter((value) => value !== null);
-    });
-    const minimum = Math.min(...allValues);
-    const maximum = Math.max(...allValues);
+      const values = models().map((model) => aggregate(model, taskId, "headline", field)).filter((value) => value !== null);
+      return [taskId, {minimum: Math.min(...values), maximum: Math.max(...values)}];
+    }));
     models().forEach((model) => {
       const row = element("tr", {}, [element("th", {scope: "row", text: model})]);
       tasks().forEach((taskId) => {
         const meta = state.taskMeta.get(taskId);
         const value = aggregate(model, taskId, "headline", meta?.headline?.field || null);
-        const normalized = value === null || maximum === minimum ? 0 : (value - minimum) / (maximum - minimum);
+        const {minimum, maximum} = taskRanges.get(taskId);
+        const normalized = value === null || maximum === minimum ? 0.5 : (value - minimum) / (maximum - minimum);
         const favorable = meta?.headline?.better === "lower" ? 1 - normalized : normalized;
         const level = value === null ? 0 : Math.max(1, Math.min(4, Math.ceil(favorable * 4)));
         const failures = failedItems(model, taskId);
-        const cellText = value === null && failures.length ? `Error · ${failures.length}` : value === null ? "n/a" : formatNumber(value, 3);
+        const conditionId = activeCondition(model, taskId);
+        const summary = conditionSummary(model, taskId, conditionId);
+        const allSummaries = pairSummaries(model, taskId);
+        const validConditions = allSummaries.filter(conditionIsUsable);
         const cell = element("td", {
-          className: `heat-cell ${failures.length && value === null ? "heat-error" : `heat-${level}`}`,
-          text: cellText,
+          className: `heat-cell ${value === null ? "heat-error" : `heat-${level}`}`,
           title: failures[0]?.error_message || "",
         });
-        const deviation = aggregate(model, taskId, "headline_stddev", meta?.headline?.field || null);
-        if (deviation !== null) cell.append(element("span", {className: "d-block small fw-normal", text: `SD ${formatNumber(deviation, 3)}`}));
+        if (value === null) {
+          const closest = closestEntry(model, taskId);
+          const selectedLabel = conditionId === "baseline" ? "Baseline failed" : "Selected condition failed";
+          cell.append(
+            element("strong", {className: "overview-outcome", text: state.resultMode === "closest" ? "No valid result" : selectedLabel}),
+            element("span", {className: "condition-chip", text: conditionName(conditionId)}),
+            element("span", {className: "overview-detail", text: failureSummary(jobItems(model, taskId))}),
+          );
+          if (validConditions.length && closest) {
+            cell.append(element("span", {
+              className: "overview-recovery",
+              text: `${validConditions.length} of ${allSummaries.length} conditions were usable; closest was ${conditionName(closest.condition_id)}.`,
+            }));
+          } else if (allSummaries.length) {
+            cell.append(element("span", {className: "overview-detail", text: `All ${allSummaries.length} tested conditions failed.`}));
+          }
+        } else {
+          const coverage = summary?.comparable_response_rate ?? aggregate(model, taskId, "comparable_response_rate");
+          cell.append(
+            element("strong", {className: "overview-outcome", text: formatHeadline(taskId, value)}),
+            element("span", {className: "overview-metric", text: headlineLabel(taskId)}),
+            element("span", {className: "condition-chip", text: conditionName(conditionId)}),
+            element("span", {className: "overview-detail", text: coverage === null ? "Coverage unavailable" : `${formatNumber(coverage * 100, 1)}% comparable responses`}),
+          );
+          const deviation = aggregate(model, taskId, "headline_stddev", meta?.headline?.field || null);
+          if (deviation !== null) cell.append(element("span", {className: "overview-detail", text: `Across-repetition SD ${formatNumber(deviation, 3)}`}));
+          const comparison = baselineComparison(model, taskId, value);
+          if (comparison) cell.append(element("span", {className: "overview-baseline", text: comparison}));
+        }
         row.append(cell);
       });
       body.append(row);
@@ -184,11 +313,19 @@
   function efficiencyRows() {
     return models().flatMap((model) => tasks().map((task) => {
       const conditionId = activeCondition(model, task);
+      const summary = conditionSummary(model, task, conditionId);
       const estimated = state.items.some((item) => item.model_id === model && item.task_id === task && item.condition_id === conditionId && item.tokens_estimated);
       const source = state.detail.models.find((entry) => entry.model_id === model)?.pricing_source || "unknown";
+      const headline = aggregate(model, task, "headline", state.taskMeta.get(task)?.headline?.field || null);
+      const coverage = summary?.comparable_response_rate ?? aggregate(model, task, "comparable_response_rate");
       return {
         model_id: model,
         task_id: task,
+        condition_id: conditionId,
+        condition: conditionName(conditionId),
+        headline,
+        coverage,
+        outcome_status: headline === null ? "No valid result" : coverage === 1 ? "Comparable" : "Partial coverage",
         input: aggregate(model, task, "input_tokens"),
         output: aggregate(model, task, "output_tokens"),
         cost: aggregate(model, task, "estimated_cost_usd"),
@@ -205,13 +342,16 @@
     const rows = efficiencyRows();
     const {key, ascending} = state.efficiencySort;
     rows.sort((a, b) => {
-      const left = a[key] ?? Number.POSITIVE_INFINITY;
-      const right = b[key] ?? Number.POSITIVE_INFINITY;
+      const left = a[key];
+      const right = b[key];
+      if (left === null || left === undefined) return right === null || right === undefined ? 0 : 1;
+      if (right === null || right === undefined) return -1;
       return (typeof left === "string" ? left.localeCompare(right) : left - right) * (ascending ? 1 : -1);
     });
     const columns = [
-      ["model_id", "Model"], ["task_id", "Task"], ["input", "Input tokens"], ["output", "Output tokens"],
-      ["cost", "Estimated cost"], ["elapsed", "Total time"], ["mean", "Mean latency", metricDefinitions.latency], ["p95", "P95 latency", metricDefinitions.p95],
+      ["model_id", "Model"], ["task_id", "Task"], ["condition", "Configuration"], ["headline", "Gold comparison"],
+      ["coverage", "Comparable"], ["outcome_status", "Outcome"], ["cost", "Estimated cost"], ["input", "Input tokens"], ["output", "Output tokens"],
+      ["mean", "Mean latency", metricDefinitions.latency], ["p95", "P95 latency", metricDefinitions.p95],
     ];
     const table = element("table", {className: "table align-middle"});
     const head = element("tr");
@@ -230,17 +370,23 @@
       body.append(element("tr", {}, [
         element("th", {scope: "row", text: row.model_id}),
         element("td", {text: taskTitle(row.task_id)}),
+        element("td", {}, element("span", {className: "condition-chip", text: row.condition})),
+        element("td", {}, [
+          element("strong", {text: formatHeadline(row.task_id, row.headline)}),
+          element("span", {className: "d-block small text-secondary", text: headlineLabel(row.task_id)}),
+        ]),
+        element("td", {text: row.coverage === null ? "n/a" : `${formatNumber(row.coverage * 100, 1)}%`}),
+        element("td", {}, element("span", {className: `outcome-pill ${row.headline === null ? "outcome-error" : row.coverage === 1 ? "outcome-ok" : "outcome-warning"}`, text: row.outcome_status})),
+        element("td", {text: `${formatCurrency(row.cost)} · ${row.source.replaceAll("_", " ")}`, title: `Estimated cost source: ${row.source}`}),
         element("td", {text: `${formatNumber(row.input, 0)}${estimated}`}),
         element("td", {text: `${formatNumber(row.output, 0)}${estimated}`}),
-        element("td", {text: `${formatCurrency(row.cost)} · ${row.source.replaceAll("_", " ")}`, title: `Estimated cost source: ${row.source}`}),
-        element("td", {text: row.elapsed === null ? "n/a" : `${formatNumber(row.elapsed / 1000, 2)} s`}),
         element("td", {text: row.mean === null ? "n/a" : `${formatNumber(row.mean, 1)} ms`}),
         element("td", {text: row.p95 === null ? "n/a" : `${formatNumber(row.p95, 1)} ms`}),
       ]));
     });
     table.append(element("thead", {}, head), body);
     document.getElementById("efficiency-table").replaceChildren(element("div", {className: "table-responsive"}, table));
-    renderEfficiencyChart(rows);
+    renderEfficiencyCharts(rows);
   }
 
   function chartColors() {
@@ -248,23 +394,49 @@
     return {teal: styles.getPropertyValue("--teal").trim(), coral: styles.getPropertyValue("--coral").trim(), ink: styles.getPropertyValue("--ink").trim(), line: styles.getPropertyValue("--line").trim()};
   }
 
-  function renderEfficiencyChart(rows) {
+  function renderEfficiencyCharts(rows) {
     if (!window.Chart) return;
-    state.efficiencyChart?.destroy();
+    state.efficiencyCharts.forEach((chart) => chart.destroy());
+    state.efficiencyCharts = [];
+    const container = document.getElementById("efficiency-charts");
+    container.replaceChildren();
     const colors = chartColors();
-    const datasets = tasks().map((taskId, index) => {
-      const field = state.taskMeta.get(taskId)?.headline?.field || null;
-      return {
-        label: taskTitle(taskId),
-        data: rows.filter((row) => row.task_id === taskId && row.cost !== null).map((row) => ({x: row.cost, y: aggregate(row.model_id, taskId, "headline", field), model: row.model_id})).filter((point) => point.y !== null),
-        backgroundColor: index % 2 ? colors.coral : colors.teal,
-        pointRadius: 6,
-      };
-    });
-    state.efficiencyChart = new Chart(document.getElementById("efficiency-chart"), {
-      type: "scatter",
-      data: {datasets},
-      options: {responsive: true, maintainAspectRatio: false, plugins: {tooltip: {callbacks: {label: (context) => `${context.raw.model}: ${formatCurrency(context.raw.x)}, headline ${formatNumber(context.raw.y, 3)}`}}}, scales: {x: {title: {display: true, text: "Estimated cost (USD)"}, grid: {color: colors.line}, ticks: {color: colors.ink}}, y: {title: {display: true, text: "Task headline value"}, grid: {color: colors.line}, ticks: {color: colors.ink}}}},
+    tasks().forEach((taskId, index) => {
+      const direction = state.taskMeta.get(taskId)?.headline?.better === "higher" ? "Higher is closer to gold." : "Lower is closer to gold.";
+      const panel = element("section", {className: "chart-panel"}, [
+        element("div", {className: "chart-heading"}, [
+          element("h3", {className: "h5", text: `${taskTitle(taskId)} · performance vs. cost`}),
+          element("p", {text: `${headlineLabel(taskId)}. ${direction}`}),
+        ]),
+      ]);
+      const points = rows.filter((row) => row.task_id === taskId && row.cost !== null && row.headline !== null).map((row) => ({
+        x: row.cost,
+        y: row.headline,
+        model: row.model_id,
+        condition: row.condition,
+        coverage: row.coverage,
+      }));
+      if (!points.length) {
+        panel.append(element("p", {className: "empty-chart", text: "No selected configuration produced both a comparable result and known estimated cost."}));
+        container.append(panel);
+        return;
+      }
+      const frame = element("div", {className: "chart-frame"});
+      const canvas = element("canvas", {role: "img", "aria-label": `${taskTitle(taskId)} gold comparison versus estimated cost`});
+      frame.append(canvas);
+      panel.append(frame);
+      container.append(panel);
+      const chart = new Chart(canvas, {
+        type: "scatter",
+        data: {datasets: [{
+          label: taskTitle(taskId),
+          data: points,
+          backgroundColor: index % 2 ? colors.coral : colors.teal,
+          pointRadius: 6,
+        }]},
+        options: {responsive: true, maintainAspectRatio: false, plugins: {tooltip: {callbacks: {label: (context) => `${context.raw.model} · ${context.raw.condition}: ${formatCurrency(context.raw.x)}, ${formatHeadline(taskId, context.raw.y)}, ${formatNumber((context.raw.coverage || 0) * 100, 1)}% comparable`}}}, scales: {x: {title: {display: true, text: "Estimated cost (USD)"}, grid: {color: colors.line}, ticks: {color: colors.ink}}, y: {title: {display: true, text: headlineLabel(taskId)}, grid: {color: colors.line}, ticks: {color: colors.ink}}}},
+      });
+      state.efficiencyCharts.push(chart);
     });
   }
 
@@ -286,13 +458,64 @@
     else renderNumericDetail(taskId);
   }
 
+  function modelDetailHeader(modelId, taskId) {
+    const conditionId = activeCondition(modelId, taskId);
+    const summary = conditionSummary(modelId, taskId, conditionId);
+    const headline = aggregate(modelId, taskId, "headline", state.taskMeta.get(taskId)?.headline?.field || null);
+    const coverage = summary?.comparable_response_rate ?? aggregate(modelId, taskId, "comparable_response_rate");
+    const chips = [element("span", {className: "condition-chip", text: conditionName(conditionId)})];
+    chips.push(element("span", {
+      className: `outcome-pill ${headline === null ? "outcome-error" : coverage === 1 ? "outcome-ok" : "outcome-warning"}`,
+      text: headline === null ? "No valid result" : coverage === 1 ? "Comparable" : "Partial coverage",
+    }));
+    if (coverage !== null) chips.push(element("span", {className: "coverage-chip", text: `${formatNumber(coverage * 100, 1)}% comparable responses`}));
+    const explanation = [];
+    if (state.detail.ablation?.enabled && state.resultMode === "closest") {
+      const closest = closestEntry(modelId, taskId);
+      explanation.push(closest?.has_comparable_result
+        ? `Selected from ${closest.valid_condition_count} usable condition${closest.valid_condition_count === 1 ? "" : "s"} out of ${closest.condition_count} tested.`
+        : `None of the ${closest?.condition_count || pairSummaries(modelId, taskId).length} tested conditions produced a gold-comparable result.`);
+    }
+    if (headline !== null) {
+      explanation.push(`${headlineLabel(taskId)}: ${formatHeadline(taskId, headline)}.`);
+      const baseline = baselineComparison(modelId, taskId, headline);
+      if (baseline) explanation.push(baseline);
+    }
+    return element("header", {className: "detail-model-heading"}, [
+      element("div", {}, [element("h3", {className: "h5 mb-2", text: modelId}), element("div", {className: "detail-chips"}, chips)]),
+      explanation.length ? element("p", {text: explanation.join(" ")}) : null,
+    ]);
+  }
+
+  function emptySelectionNotice(modelId, taskId) {
+    const summaries = pairSummaries(modelId, taskId);
+    const valid = summaries.filter(conditionIsUsable);
+    const closest = closestEntry(modelId, taskId);
+    const selected = conditionName(activeCondition(modelId, taskId));
+    const detail = valid.length && closest
+      ? `${selected} failed, but ${valid.length} of ${summaries.length} tested conditions were usable. The closest valid observed condition is ${conditionName(closest.condition_id)}.`
+      : summaries.length
+        ? `No gold-comparable answer was returned under any of the ${summaries.length} tested conditions.`
+        : "This configuration did not return a gold-comparable answer.";
+    return element("div", {className: "selection-empty", role: "status"}, [
+      element("strong", {text: "No comparable task detail for this configuration"}),
+      element("p", {text: detail}),
+    ]);
+  }
+
   function renderNumericDetail(taskId) {
     const container = document.getElementById("task-detail-view");
     container.replaceChildren();
     const taskItems = models().flatMap((model) => jobItems(model, taskId)).filter((item) => item.status === "ok");
     models().forEach((model) => {
       const rows = taskItems.filter((item) => item.model_id === model);
-      const block = element("section", {className: "detail-model-block"}, [element("h3", {className: "h5", text: model})]);
+      const block = element("section", {className: "detail-model-block"}, [modelDetailHeader(model, taskId)]);
+      if (!rows.length) {
+        block.append(emptySelectionNotice(model, taskId));
+        appendFailureNotice(block, failedItems(model, taskId));
+        container.append(block);
+        return;
+      }
       const table = element("table", {className: "table align-middle"});
       const head = element("tr", {}, [element("th", {scope: "col", text: "Item"}), element("th", {scope: "col", text: "Field"}), element("th", {scope: "col", text: "Model"}), element("th", {scope: "col", text: "Gold"}), element("th", {scope: "col", text: "Signed difference"})]);
       const body = element("tbody");
@@ -326,13 +549,20 @@
       const ratioValues = rows.map((item) => item.comparison.details.derived_ratios).filter(Boolean);
       const agreement = aggregate(model, taskId, "token_agreement");
       const block = element("section", {className: "detail-model-block"}, [
-        element("h3", {className: "h5", text: model}),
+        modelDetailHeader(model, taskId),
         element("div", {className: "row g-3 mb-3"}, [
           metricCard("Mean token agreement", agreement === null ? "n/a" : `${formatNumber(agreement * 100, 1)}%`),
           metricCard("Alignment problems", `${alignment} / ${rows.length}`),
           metricCard("Derived ratios", ratioValues.length ? jsonText(ratioValues[0]) : "n/a"),
         ]),
       ]);
+      if (!rows.length) {
+        block.querySelector(".row")?.remove();
+        block.append(emptySelectionNotice(model, taskId));
+        appendFailureNotice(block, failedItems(model, taskId));
+        container.append(block);
+        return;
+      }
       const table = element("table", {className: "table align-middle"});
       const body = element("tbody");
       const modelCounts = {};
@@ -507,11 +737,30 @@
     document.getElementById("ablation-tab-item").classList.toggle("d-none", !enabled);
     const control = document.getElementById("result-mode-control");
     control.classList.toggle("d-none", !enabled);
-    if (!enabled) state.resultMode = "baseline";
+    const context = document.getElementById("result-context");
+    if (!enabled) {
+      state.resultMode = "baseline";
+      context.classList.add("d-none");
+      context.replaceChildren();
+      return;
+    }
     const select = document.getElementById("result-mode-select");
+    const options = [
+      element("option", {value: "closest", text: "Closest valid observed · per model/task"}),
+      element("option", {value: "baseline", text: `Baseline only · max tokens ${formatNumber(state.detail.ablation.baseline_value, 0)}`}),
+      ...state.detail.ablation.conditions.filter((condition) => !condition.is_baseline).map((condition) => element("option", {
+        value: `condition:${condition.condition_id}`,
+        text: `Specific condition · max tokens ${formatNumber(condition.value, 0)}`,
+      })),
+    ];
+    select.replaceChildren(...options);
+    const validModes = options.map((option) => option.value);
+    if (!validModes.includes(state.resultMode)) state.resultMode = "closest";
     select.value = state.resultMode;
+    renderResultContext();
     select.onchange = () => {
       state.resultMode = select.value;
+      renderResultContext();
       renderOverview();
       renderEfficiency();
       renderTaskDetail();
@@ -519,45 +768,73 @@
     };
   }
 
+  function renderResultContext() {
+    const context = document.getElementById("result-context");
+    if (!state.detail?.ablation?.enabled) {
+      context.classList.add("d-none");
+      return;
+    }
+    context.classList.remove("d-none");
+    if (state.resultMode === "closest") {
+      context.replaceChildren(
+        element("strong", {text: "Showing closest valid observed results."}),
+        element("span", {text: "Each model/task cell may use a different tested configuration. Comparable-response coverage is prioritized before closeness to gold, then estimated cost and latency. This selection is exploratory because it uses the displayed gold items."}),
+      );
+      return;
+    }
+    const conditionId = state.resultMode === "baseline" ? "baseline" : state.resultMode.slice(10);
+    context.replaceChildren(
+      element("strong", {text: `Showing ${conditionName(conditionId)}.`}),
+      element("span", {text: "Overview, Efficiency, and Task Detail are restricted to this one condition. Other tested conditions remain available here and in the Ablation tab."}),
+    );
+  }
+
   function renderAblation() {
     const ablation = state.detail.ablation;
     if (!ablation?.enabled) return;
     document.getElementById("ablation-warning-text").textContent = ablation.same_dataset_warning;
     const summaries = ablation.summaries;
-    const best = new Set(ablation.best_conditions.map((entry) => `${entry.model_id}\u0000${entry.task_id}\u0000${entry.condition_id}`));
+    const closest = new Set((ablation.closest_conditions || ablation.best_conditions).map((entry) => `${entry.model_id}\u0000${entry.task_id}\u0000${entry.condition_id}`));
     const totalJobs = summaries.reduce((sum, row) => sum + (row.items_run || 0), 0);
     const truncations = summaries.reduce((sum, row) => sum + (row.truncated_responses || 0), 0);
     const removed = summaries.reduce((sum, row) => sum + (row.optional_parameters_removed || 0), 0);
+    const usableConditions = summaries.filter(conditionIsUsable).length;
     const cards = document.getElementById("ablation-cards");
     cards.replaceChildren(
       metricCard("Conditions", String(ablation.conditions.length), `${ablation.parameter.replaceAll("_", " ")} values`),
-      metricCard("Ablation jobs", formatNumber(totalJobs, 0), "Failures remain in the denominator."),
+      metricCard("Usable model/task conditions", `${usableConditions} / ${summaries.length}`, "A usable condition returned a gold-comparable result."),
+      metricCard("Ablation jobs", formatNumber(totalJobs, 0), "Failures remain in comparable-response denominators."),
       metricCard("Token-limit truncations", formatNumber(truncations, 0), "Reported with finish_reason = length."),
-      metricCard("Parameters removed", formatNumber(removed, 0), "Gateway rejected optional request parameters."),
     );
+    if (removed) cards.append(metricCard("Parameters removed", formatNumber(removed, 0), "Gateway rejected optional request parameters."));
+
+    renderAblationRecommendations();
 
     const table = element("table", {className: "table align-middle"});
     table.append(element("thead", {}, element("tr", {}, [
-      "Model", "Task", "Max tokens", "Comparable", "Parse failures", "Errors", "Truncated", "Agreement", "Headline", "SD", "Estimated cost", "Mean latency", "Selection",
+      "Model", "Task", "Configuration", "Comparable", "Outcome", "Gold comparison", "Across-repetition SD", "Failures", "Estimated cost", "Mean latency", "Selection",
     ].map((label) => element("th", {scope: "col", text: label})))));
     const body = element("tbody");
     summaries.forEach((row) => {
       const key = `${row.model_id}\u0000${row.task_id}\u0000${row.condition_id}`;
-      const selected = best.has(key);
-      body.append(element("tr", {className: selected ? "ablation-best-row" : ""}, [
+      const selected = closest.has(key) && conditionIsUsable(row);
+      const failures = (row.parse_failures || 0) + (row.errors || 0);
+      const outcome = !conditionIsUsable(row) ? "No valid result" : row.comparable_response_rate === 1 ? "Comparable" : "Partial coverage";
+      body.append(element("tr", {className: selected ? "ablation-best-row" : !conditionIsUsable(row) ? "ablation-error-row" : ""}, [
         element("th", {scope: "row", text: row.model_id}),
         element("td", {text: taskTitle(row.task_id)}),
-        element("td", {text: formatNumber(row.value, 0)}),
+        element("td", {}, element("span", {className: "condition-chip", text: conditionName(row.condition_id)})),
         element("td", {text: row.comparable_response_rate === null ? "n/a" : `${formatNumber(row.comparable_response_rate * 100, 1)}%`}),
-        element("td", {text: formatNumber(row.parse_failures, 0)}),
-        element("td", {text: formatNumber(row.errors, 0)}),
-        element("td", {text: formatNumber(row.truncated_responses, 0)}),
-        element("td", {text: row.token_agreement === null ? "n/a" : `${formatNumber(row.token_agreement * 100, 1)}%`}),
-        element("td", {text: formatNumber(row.headline, 3)}),
+        element("td", {}, element("span", {className: `outcome-pill ${!conditionIsUsable(row) ? "outcome-error" : row.comparable_response_rate === 1 ? "outcome-ok" : "outcome-warning"}`, text: outcome})),
+        element("td", {}, [
+          element("strong", {text: formatHeadline(row.task_id, row.headline)}),
+          element("span", {className: "d-block small text-secondary", text: headlineLabel(row.task_id)}),
+        ]),
         element("td", {text: formatNumber(row.headline_stddev, 3)}),
+        element("td", {text: `${formatNumber(failures, 0)}${row.truncated_responses ? ` · ${formatNumber(row.truncated_responses, 0)} truncated` : ""}`}),
         element("td", {text: formatCurrency(row.estimated_cost_usd)}),
         element("td", {text: row.mean_latency_ms === null ? "n/a" : `${formatNumber(row.mean_latency_ms, 1)} ms`}),
-        element("td", {text: selected ? "Best observed" : row.is_baseline ? "Baseline" : "—"}),
+        element("td", {text: selected ? "Closest valid observed" : row.is_baseline ? "Baseline" : "—"}),
       ]));
     });
     table.append(body);
@@ -565,41 +842,101 @@
     renderAblationCharts(summaries);
   }
 
+  function renderAblationRecommendations() {
+    const container = document.getElementById("ablation-recommendations");
+    container.replaceChildren();
+    const entries = state.detail.ablation.closest_conditions || [];
+    entries.forEach((entry) => {
+      const baseline = conditionSummary(entry.model_id, entry.task_id, "baseline");
+      const card = element("article", {className: `recommendation-card${entry.has_comparable_result ? "" : " recommendation-failed"}`}, [
+        element("div", {className: "recommendation-heading"}, [
+          element("div", {}, [element("strong", {text: entry.model_id}), element("span", {text: taskTitle(entry.task_id)})]),
+          element("span", {className: `outcome-pill ${entry.has_comparable_result ? "outcome-ok" : "outcome-error"}`, text: entry.has_comparable_result ? "Usable" : "No valid condition"}),
+        ]),
+      ]);
+      if (entry.has_comparable_result) {
+        card.append(
+          element("strong", {className: "recommendation-condition", text: conditionName(entry.condition_id)}),
+          element("div", {className: "recommendation-result"}, [
+            element("strong", {text: formatHeadline(entry.task_id, entry.headline)}),
+            element("span", {text: headlineLabel(entry.task_id)}),
+          ]),
+          element("p", {text: `${formatNumber((entry.comparable_response_rate || 0) * 100, 1)}% comparable responses · ${entry.valid_condition_count} of ${entry.condition_count} conditions usable.`}),
+          element("p", {className: "recommendation-baseline", text: conditionIsUsable(baseline) ? baselineComparisonFor(entry.task_id, entry.headline, baseline.headline) : "Baseline failed; another tested condition produced a comparable result."}),
+        );
+      } else {
+        const items = state.items.filter((item) => item.model_id === entry.model_id && item.task_id === entry.task_id);
+        card.append(
+          element("strong", {className: "recommendation-condition", text: `All ${entry.condition_count} conditions failed`}),
+          element("p", {text: failureSummary(items)}),
+          element("p", {className: "recommendation-baseline", text: "This model/task pair cannot be ranked against gold from this run."}),
+        );
+      }
+      container.append(card);
+    });
+  }
+
+  function baselineComparisonFor(taskId, selectedValue, baselineValue) {
+    const better = state.taskMeta.get(taskId)?.headline?.better || "lower";
+    const favorableChange = better === "higher" ? selectedValue - baselineValue : baselineValue - selectedValue;
+    if (Math.abs(favorableChange) < Number.EPSILON) return "Matches the baseline gold-comparison result.";
+    const magnitude = state.taskMeta.get(taskId)?.headline?.stat?.includes("agreement")
+      ? `${formatNumber(Math.abs(favorableChange) * 100, 1)} percentage points`
+      : formatNumber(Math.abs(favorableChange), 3);
+    return `${favorableChange > 0 ? "Improves on" : "Is worse than"} baseline by ${magnitude}.`;
+  }
+
   function renderAblationCharts(summaries) {
     if (!window.Chart) return;
-    state.ablationPerformanceChart?.destroy();
-    state.ablationParetoChart?.destroy();
-    const groups = [...new Set(summaries.map((row) => `${row.model_id}\u0000${row.task_id}`))];
+    state.ablationCharts.forEach((chart) => chart.destroy());
+    state.ablationCharts = [];
+    const container = document.getElementById("ablation-task-charts");
+    container.replaceChildren();
     const palette = ["#60a5fa", "#22d3ee", "#a78bfa", "#f59e0b", "#34d399", "#fb7185"];
-    const datasets = groups.map((group, index) => {
-      const [modelId, taskId] = group.split("\u0000");
-      return {
-        label: `${modelId} · ${taskTitle(taskId)}`,
-        data: summaries.filter((row) => row.model_id === modelId && row.task_id === taskId && row.headline !== null).sort((a, b) => a.value - b.value).map((row) => ({x: row.value, y: row.headline, condition: row.label})),
+    tasks().forEach((taskId) => {
+      const taskSummaries = summaries.filter((row) => row.task_id === taskId);
+      const direction = state.taskMeta.get(taskId)?.headline?.better === "higher" ? "Higher is closer to gold." : "Lower is closer to gold.";
+      const grid = element("div", {className: "ablation-chart-grid"});
+      const performance = ablationChartPanel(`${taskTitle(taskId)} · performance by token budget`, `${headlineLabel(taskId)}. ${direction}`, `${taskTitle(taskId)} performance across maximum-token conditions`);
+      const pareto = ablationChartPanel(`${taskTitle(taskId)} · cost and performance`, `${headlineLabel(taskId)} against estimated cost. ${direction}`, `${taskTitle(taskId)} estimated cost and performance by condition`);
+      grid.append(performance.panel, pareto.panel);
+      container.append(grid);
+      const taskModels = [...new Set(taskSummaries.map((row) => row.model_id))];
+      const performanceDatasets = taskModels.map((modelId, index) => ({
+        label: modelId,
+        data: taskSummaries.filter((row) => row.model_id === modelId && row.headline !== null).sort((a, b) => a.value - b.value).map((row) => ({x: row.value, y: row.headline, condition: conditionName(row.condition_id), coverage: row.comparable_response_rate})),
         borderColor: palette[index % palette.length],
         backgroundColor: palette[index % palette.length],
         tension: 0.2,
-      };
-    });
-    state.ablationPerformanceChart = new Chart(document.getElementById("ablation-performance-chart"), {
-      type: "line",
-      data: {datasets},
-      options: {responsive: true, maintainAspectRatio: false, parsing: false, scales: {x: {type: "linear", title: {display: true, text: "Maximum output tokens"}}, y: {title: {display: true, text: "Task headline value"}}}},
-    });
-    const paretoDatasets = groups.map((group, index) => {
-      const [modelId, taskId] = group.split("\u0000");
-      return {
-        label: `${modelId} · ${taskTitle(taskId)}`,
-        data: summaries.filter((row) => row.model_id === modelId && row.task_id === taskId && row.estimated_cost_usd !== null && row.headline !== null).map((row) => ({x: row.estimated_cost_usd, y: row.headline, condition: row.label})),
+      }));
+      const paretoDatasets = taskModels.map((modelId, index) => ({
+        label: modelId,
+        data: taskSummaries.filter((row) => row.model_id === modelId && row.estimated_cost_usd !== null && row.headline !== null).map((row) => ({x: row.estimated_cost_usd, y: row.headline, condition: conditionName(row.condition_id), coverage: row.comparable_response_rate})),
         backgroundColor: palette[index % palette.length],
         pointRadius: 6,
-      };
+      }));
+      state.ablationCharts.push(new Chart(performance.canvas, {
+        type: "line",
+        data: {datasets: performanceDatasets},
+        options: {responsive: true, maintainAspectRatio: false, parsing: false, plugins: {tooltip: {callbacks: {label: (context) => `${context.dataset.label} · ${context.raw.condition}: ${formatHeadline(taskId, context.raw.y)}, ${formatNumber((context.raw.coverage || 0) * 100, 1)}% comparable`}}}, scales: {x: {type: "linear", title: {display: true, text: "Maximum output tokens"}}, y: {title: {display: true, text: headlineLabel(taskId)}}}},
+      }));
+      state.ablationCharts.push(new Chart(pareto.canvas, {
+        type: "scatter",
+        data: {datasets: paretoDatasets},
+        options: {responsive: true, maintainAspectRatio: false, parsing: false, plugins: {tooltip: {callbacks: {label: (context) => `${context.dataset.label} · ${context.raw.condition}: ${formatCurrency(context.raw.x)}, ${formatHeadline(taskId, context.raw.y)}, ${formatNumber((context.raw.coverage || 0) * 100, 1)}% comparable`}}}, scales: {x: {title: {display: true, text: "Estimated cost (USD)"}}, y: {title: {display: true, text: headlineLabel(taskId)}}}},
+      }));
     });
-    state.ablationParetoChart = new Chart(document.getElementById("ablation-pareto-chart"), {
-      type: "scatter",
-      data: {datasets: paretoDatasets},
-      options: {responsive: true, maintainAspectRatio: false, parsing: false, plugins: {tooltip: {callbacks: {label: (context) => `${context.dataset.label} · ${context.raw.condition}: ${formatCurrency(context.raw.x)}, headline ${formatNumber(context.raw.y, 3)}`}}}, scales: {x: {title: {display: true, text: "Estimated cost (USD)"}}, y: {title: {display: true, text: "Task headline value"}}}},
-    });
+  }
+
+  function ablationChartPanel(title, description, ariaLabel) {
+    const canvas = element("canvas", {role: "img", "aria-label": ariaLabel});
+    return {
+      canvas,
+      panel: element("section", {className: "chart-panel"}, [
+        element("div", {className: "chart-heading"}, [element("h3", {className: "h5", text: title}), element("p", {text: description})]),
+        element("div", {className: "chart-frame"}, canvas),
+      ]),
+    };
   }
 
   function renderTokenAnalysis() {

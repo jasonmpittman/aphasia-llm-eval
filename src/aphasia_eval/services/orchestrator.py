@@ -153,7 +153,7 @@ class RunOrchestrator:
                 "conditions": [condition.as_dict() for condition in conditions],
                 "task_headlines": {task.task_id: dict(task.config["headline"]) for task in tasks},
                 "selection_rule": (
-                    "Highest comparable-response rate, then best task headline, "
+                    "Highest comparable-response rate, then closest task headline to gold, "
                     "then lower estimated cost and latency."
                 ),
             }

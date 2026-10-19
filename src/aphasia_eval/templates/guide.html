@@ -63,9 +63,10 @@
     </section>
 
     <section id="experiments" class="guide-section bento-card">
-      <p class="section-kicker">Ablation studies</p><h2>Experiments and “best observed”</h2>
+      <p class="section-kicker">Ablation studies</p><h2>Experiments and “closest valid observed”</h2>
       <p>An ablation run changes one setting—currently maximum output tokens—while keeping the other settings fixed. The baseline is the ordinary configuration.</p>
-      <p>“Best observed” is exploratory because it is selected on the same gold items shown in the report. For defensible model selection, choose settings on development items and report performance on separate held-out items.</p>
+      <p>The report first favors configurations that return comparable answers, then chooses the task headline closest to gold, followed by lower estimated cost and latency. Overview, Efficiency, and Task Detail use that selection by default; the results selector can lock those views to the baseline or one tested token limit.</p>
+      <p>“Closest valid observed” is exploratory because it is selected on the same gold items shown in the report. For defensible model selection, choose settings on development items and report performance on separate held-out items.</p>
     </section>
 
     <section id="troubleshooting" class="guide-section bento-card guide-section-wide">

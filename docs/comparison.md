@@ -28,11 +28,13 @@ remain in the comparable-response denominator. The stored experiment metadata
 contains the requested settings and whether the gateway rejected and caused
 the client to remove optional parameters.
 
-The best-observed condition is selected independently for each model/task pair
-by comparable-response rate, then the task's declared headline direction,
-then lower estimated cost and latency. This is an exploratory convenience, not
-held-out model selection. Use separate development and evaluation items before
-making comparative performance claims.
+The closest valid observed condition is selected independently for each
+model/task pair by comparable-response rate, then the task's declared headline
+direction, then lower estimated cost and latency. A condition that produced no
+gold-comparable answer is reported as a failure rather than low agreement. This
+selection is an exploratory convenience, not held-out model selection. Use
+separate development and evaluation items before making comparative performance
+claims.
 
 ## Derived values
 

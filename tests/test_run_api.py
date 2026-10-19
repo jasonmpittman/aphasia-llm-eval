@@ -404,6 +404,15 @@ def test_max_token_ablation_expands_conditions_and_selects_best(client, fake_lit
             "condition_id": "baseline",
         }
     ]
+    closest = detail["ablation"]["closest_conditions"]
+    assert len(closest) == 1
+    assert closest[0]["condition_id"] == "baseline"
+    assert closest[0]["has_comparable_result"] is True
+    assert closest[0]["comparable_response_rate"] == 1
+    assert closest[0]["valid_condition_count"] == 2
+    assert closest[0]["condition_count"] == 3
+    assert closest[0]["baseline_has_comparable_result"] is True
+    assert closest[0]["headline"] is not None
     assert {entry["condition_id"] for entry in detail["aggregates"]} == {
         "baseline",
         "max_tokens_128",
@@ -424,6 +433,29 @@ def test_max_token_ablation_expands_conditions_and_selects_best(client, fake_lit
         "max_tokens_256",
     }
     assert all(item["condition"]["requested_settings"]["max_tokens"] for item in items)
+
+
+def test_ablation_reports_when_every_condition_failed(client):
+    response = _create_run(
+        client,
+        models=["error-model"],
+        settings={
+            "max_tokens": 100,
+            "repetitions": 1,
+            "max_items_per_task": 1,
+            "ablation": {"parameter": "max_tokens", "values": [128]},
+        },
+    )
+    assert response.status_code == 202
+
+    detail = client.get(f"/api/runs/{response.get_json()['run_id']}", headers=HEADERS).get_json()
+    closest = detail["ablation"]["closest_conditions"]
+    assert len(closest) == 1
+    assert closest[0]["has_comparable_result"] is False
+    assert closest[0]["headline"] is None
+    assert closest[0]["valid_condition_count"] == 0
+    assert closest[0]["condition_count"] == 2
+    assert closest[0]["baseline_has_comparable_result"] is False
 
 
 @pytest.mark.parametrize(

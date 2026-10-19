@@ -487,7 +487,13 @@ def _serialize_result(result: Result) -> dict[str, Any]:
 def _ablation_detail(settings: Mapping[str, Any], aggregates: list[Aggregate]) -> dict[str, Any]:
     ablation = settings.get("ablation")
     if not isinstance(ablation, Mapping):
-        return {"enabled": False, "conditions": [], "summaries": [], "best_conditions": []}
+        return {
+            "enabled": False,
+            "conditions": [],
+            "summaries": [],
+            "best_conditions": [],
+            "closest_conditions": [],
+        }
     aggregate_lookup = {
         (
             aggregate.model_id,
@@ -552,6 +558,7 @@ def _ablation_detail(settings: Mapping[str, Any], aggregates: list[Aggregate]) -
             }
         )
     best_conditions = []
+    closest_conditions = []
     pairs = sorted({(row["model_id"], row["task_id"]) for row in summaries})
     for model_id, task_id in pairs:
         candidates = [
@@ -565,6 +572,34 @@ def _ablation_detail(settings: Mapping[str, Any], aggregates: list[Aggregate]) -
                 "condition_id": best["condition_id"],
             }
         )
+        baseline = next((row for row in candidates if row["is_baseline"]), None)
+        valid_conditions = [
+            row
+            for row in candidates
+            if row["headline"] is not None and (row["comparable_response_rate"] or 0) > 0
+        ]
+        closest_conditions.append(
+            {
+                "model_id": model_id,
+                "task_id": task_id,
+                "condition_id": best["condition_id"],
+                "condition_label": best["label"],
+                "condition_value": best["value"],
+                "has_comparable_result": best in valid_conditions,
+                "headline": best["headline"],
+                "headline_field": best["headline_field"],
+                "headline_better": best["headline_better"],
+                "comparable_response_rate": best["comparable_response_rate"],
+                "valid_condition_count": len(valid_conditions),
+                "condition_count": len(candidates),
+                "baseline_has_comparable_result": bool(
+                    baseline
+                    and baseline["headline"] is not None
+                    and (baseline["comparable_response_rate"] or 0) > 0
+                ),
+                "baseline_headline": baseline["headline"] if baseline else None,
+            }
+        )
     return {
         "enabled": True,
         "parameter": ablation.get("parameter"),
@@ -573,8 +608,10 @@ def _ablation_detail(settings: Mapping[str, Any], aggregates: list[Aggregate]) -
         "selection_rule": ablation.get("selection_rule"),
         "summaries": summaries,
         "best_conditions": best_conditions,
+        "closest_conditions": closest_conditions,
         "same_dataset_warning": (
-            "Best observed conditions were selected on these same gold items and are exploratory."
+            "Closest valid observed conditions were selected on these same gold items and are "
+            "exploratory, not held-out performance estimates."
         ),
     }
 

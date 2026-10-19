@@ -64,6 +64,10 @@ def test_frontend_pages_render_without_inline_scripts(client):
     assert b'id="task-detail-tab"' in run_page.data
     assert b'id="ablation-tab"' in run_page.data
     assert b'id="result-mode-select"' in run_page.data
+    assert b'id="result-context"' in run_page.data
+    assert b'id="efficiency-charts"' in run_page.data
+    assert b'id="ablation-recommendations"' in run_page.data
+    assert b'id="ablation-task-charts"' in run_page.data
     assert b'id="items-tab"' in run_page.data
     assert b'id="run-info-tab"' in run_page.data
     assert b"CSV package" in run_page.data

@@ -714,20 +714,22 @@ Responsive Bootstrap layout with a dark cobalt visual system, bento-grid content
 
 Live progress first (overall bar, per-model rows, cancel), then tabs that fill as data arrives:
 
-1. **Overview:** a matrix of models × tasks showing each task's headline statistic (a number, with a heat-scale background as a secondary cue). Alongside it, cards for best headline value per task, lowest estimated cost, and fastest model, each labeled with its basis.
-2. **Efficiency:** input tokens, output tokens, estimated cost (with source indicator), total time, mean and 95th-percentile latency per model per task, sortable. A scatter of headline statistic versus cost per task.
-3. **Task detail:** a task selector, then the comparator's view.
+1. **Overview:** a matrix of models × tasks showing the selected configuration, gold-comparison headline, comparable-response coverage, repetition variability, and relationship to baseline. Failures are separate from low agreement, and a failed baseline identifies a usable tested alternative when one exists. Heat scaling is calculated independently for each task.
+2. **Efficiency:** the selected configuration, gold comparison, coverage, outcome, tokens, estimated cost (with source indicator), and mean and 95th-percentile latency per model and task, sortable. Cost/performance charts are separated by task so unlike clinical constructs never share a scale.
+3. **Task detail:** a task selector, then the comparator's view. Each model heading states the configuration in view, whether it produced a comparable result, coverage, and its relationship to baseline.
    - `ciu_scoring`: per model, a table of items with model versus gold for `total_words`, `ciu_count`, and `percent_ciu`, signed differences, a scatter of model CIU count versus gold CIU count, and per-label precision, recall, F1, support, confusion matrix, and repetition stability for non-word, word/non-CIU, and CIU labels.
    - `pos_breakdown`: per model, gold versus model counts per POS category, token agreement, derived ratios, alignment problems, per-label precision/recall/F1/support, a confusion matrix, and repetition stability.
 4. **Token analysis:** an utterance-by-utterance rendering that joins CIU and POS results by fixed token index. Select the condition and repetition, then switch between model, gold, and difference views; badges show word/non-word, CIU/non-CIU, and POS.
-5. **Ablation:** for ablation runs, a condition table and charts show comparable-response rate, parse and request failures, truncation, agreement, headline variability, estimated cost, latency, and the cost/performance frontier. The selection rule prioritizes response coverage, then the task headline, lower cost, and lower latency.
+5. **Ablation:** for ablation runs, recommendation cards identify the closest valid observed configuration separately for every model and task. The condition table and task-specific charts show comparable-response rate, parse and request failures, truncation, agreement, headline variability, estimated cost, latency, and cost/performance. The selection rule prioritizes response coverage, then closeness to gold on the task headline, lower cost, and lower latency.
 6. **Items:** every item and condition with the input, gold answer, parsed answer, differences, raw output, and safe response diagnostics. Filters cover disagreements, all failures, and alignment problems.
 7. **Run info:** settings, concurrency, task and prompt hashes, gold file hashes, app version, timestamps. Enough to reproduce the run.
 
-Overview, Efficiency, and Task Detail default to the baseline configuration.
-For an ablation run they can instead show the best-observed condition for each
-model/task pair. The UI labels this selection as exploratory because it is
-chosen on the same gold items being displayed.
+For ablation runs, Overview, Efficiency, and Task Detail default to the closest
+valid observed configuration for each model/task pair. The selector can instead
+lock all three views to the baseline or any individual tested condition. The UI
+shows the configuration and coverage wherever a gold comparison appears and
+labels the default selection as exploratory because it is chosen on the same
+gold items being displayed.
 
 Every cost is labeled "estimated". Token counts from the fallback estimator are marked "est.".
 
@@ -916,13 +918,14 @@ milestones are:
 
 | Milestone | Scope | Status |
 |-----------|-------|--------|
-| **M7: Ablation studies** | Add an opt-in experiment mode that expands a run across declared parameter conditions. Begin with `max_tokens`; keep temperature and prompt fixed, support repetitions, include failed responses in coverage statistics, record requested versus accepted parameters, and show the expanded request/cost estimate before launch. Add an Ablation tab with accuracy, valid-response rate, truncation, variability, cost, latency, and Pareto views. Ordinary result tabs may switch between the baseline and a per-model/per-task best-observed condition, with the selection rule and same-dataset limitation shown explicitly. Export every condition and its provenance. | Complete |
+| **M7: Ablation studies** | Add an opt-in experiment mode that expands a run across declared parameter conditions. Begin with `max_tokens`; keep temperature and prompt fixed, support repetitions, include failed responses in coverage statistics, record requested versus accepted parameters, and show the expanded request/cost estimate before launch. Add an Ablation tab with accuracy, valid-response rate, truncation, variability, cost, latency, and Pareto views. Ordinary result tabs may switch between the baseline and a per-model/per-task closest valid observed condition, with the selection rule and same-dataset limitation shown explicitly. Export every condition and its provenance. | Complete |
 | **M8: Richer agreement metrics** | Add per-label precision, recall, and F1 for POS and CIU token labels, plus confusion matrices and repetition summaries. Keep raw agreement and count-error metrics; do not collapse unlike tasks into a composite score. Add layered plain-language help with inline definitions and a Guide & glossary page. | Complete |
+| **M8.1: Results interpretation** | Make ablation results decision-oriented: default to the closest valid observed configuration, attach configuration and coverage to every comparison, distinguish failures from low agreement, show baseline recovery, and keep performance and cost charts on task-specific scales. | Complete |
 | **M9: Experiment comparison** | Add first-class prompt variants and side-by-side comparison of two runs or conditions, including prompt/task/gold hashes and signed metric changes. | Planned |
 | **M10: Execution continuity** | Add streamed completions with time-to-first-token measurement and resumable interrupted runs without duplicating completed jobs. | Planned |
 | **M11: v0.2 beta readiness** | Add schema migration/versioning for existing SQLite databases, extend exports and documentation for experiments, run live cross-model compatibility checks, complete accessibility and browser smoke tests, and update package and citation versions for the beta release. | Planned |
 
-“Best observed” is exploratory when selected on the same gold items used for
+“Closest valid observed” is exploratory when selected on the same gold items used for
 reporting. A defensible model-selection workflow requires development items to
 choose a condition and separate held-out items to report its performance. With
 only one current Cat Rescue item, ablation results can demonstrate behavior and

@@ -27,9 +27,16 @@ def _read_task(name: str):
 def test_example_tasks_validate_with_gold_and_hashes():
     results = load_tasks(ROOT / "tasks", ROOT / "gold_tasks/examples")
 
-    assert [result.task_id for result in results] == ["ciu_scoring", "pos_breakdown"]
+    assert [result.task_id for result in results] == [
+        "ciu_broken_window",
+        "ciu_cinderella",
+        "ciu_procedural_pbj",
+        "ciu_refused_umbrella",
+        "ciu_scoring",
+        "pos_breakdown",
+    ]
     assert all(result.enabled for result in results)
-    ciu = results[0].task
+    ciu = next(result.task for result in results if result.task_id == "ciu_scoring")
     assert ciu is not None and ciu.gold is not None
     assert len(ciu.gold.items) == 5
     assert ciu.task_sha256 == hashlib.sha256(ciu.path.read_bytes()).hexdigest()
@@ -39,7 +46,7 @@ def test_example_tasks_validate_with_gold_and_hashes():
 def test_missing_real_gold_disables_each_task_without_stopping_loader(tmp_path):
     results = load_tasks(ROOT / "tasks", tmp_path)
 
-    assert len(results) == 2
+    assert len(results) == 6
     assert all(not result.enabled for result in results)
     assert all(any("gold file not found" in error for error in result.errors) for result in results)
     assert all(result.task is not None and result.task.gold is None for result in results)
@@ -86,9 +93,9 @@ def test_clinically_reviewed_cat_rescue_gold_matches_annotation():
 
     assert result.enabled, result.errors
     assert result.task is not None and result.task.gold is not None
-    assert result.task.config["version"] == "0.3.0"
-    assert len(result.task.gold.items) == 1
-    item = result.task.gold.items[0]
+    assert result.task.config["version"] == "0.4.0"
+    assert len(result.task.gold.items) == 26
+    item = next(item for item in result.task.gold.items if item.item_id == "cat_rescue_001")
     assert item.item_id == "cat_rescue_001"
     assert item.gold["token_count"] == 69
     assert len(item.gold["word_indices"]) == 65

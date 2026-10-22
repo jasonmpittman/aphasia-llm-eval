@@ -1,0 +1,8 @@
+# SYNTHETIC DEMONSTRATION DATA ONLY. Not clinical data; no accuracy claim.
+=== item: synthetic_broken_window_001 ===
+[input]
+stimulus: Broken Window
+[gold]
+1	1	The	WORD	CIU
+2	1	window	WORD	CIU
+3	1	broke	WORD	CIU

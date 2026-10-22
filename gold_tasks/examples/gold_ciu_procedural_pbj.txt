@@ -1,0 +1,9 @@
+# SYNTHETIC DEMONSTRATION DATA ONLY. Not clinical data; no accuracy claim.
+=== item: synthetic_procedural_pbj_001 ===
+[input]
+stimulus: Procedural PB&J
+[gold]
+1	1	Spread	WORD	CIU
+2	1	the	WORD	CIU
+3	1	peanut	WORD	CIU
+4	1	butter	WORD	CIU

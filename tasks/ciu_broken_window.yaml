@@ -1,0 +1,11 @@
+schema_version: 1
+extends: ciu_scoring
+task_id: ciu_broken_window
+title: CIU Scoring · Broken Window
+version: "0.1.0"
+description: >
+  The model scores total words and Correct Information Units in Broken Window
+  picture-description samples.
+gold:
+  file: gold_ciu_broken_window.txt
+  parser: ciu_token_table

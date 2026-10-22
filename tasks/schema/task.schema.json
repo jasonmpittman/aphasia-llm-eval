@@ -19,6 +19,7 @@
   ],
   "properties": {
     "schema_version": {"const": 1},
+    "extends": {"type": "string", "pattern": "^[a-z0-9_]+$"},
     "task_id": {"type": "string", "pattern": "^[a-z0-9_]+$"},
     "title": {"type": "string", "minLength": 1},
     "category": {"type": "string", "minLength": 1},

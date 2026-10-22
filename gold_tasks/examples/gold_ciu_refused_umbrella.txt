@@ -1,0 +1,9 @@
+# SYNTHETIC DEMONSTRATION DATA ONLY. Not clinical data; no accuracy claim.
+=== item: synthetic_refused_umbrella_001 ===
+[input]
+stimulus: Refused Umbrella
+[gold]
+1	1	He	WORD	CIU
+2	1	needed	WORD	CIU
+3	1	an	WORD	CIU
+4	1	umbrella	WORD	CIU

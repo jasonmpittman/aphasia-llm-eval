@@ -1,0 +1,11 @@
+schema_version: 1
+extends: ciu_scoring
+task_id: ciu_refused_umbrella
+title: CIU Scoring · Refused Umbrella
+version: "0.1.0"
+description: >
+  The model scores total words and Correct Information Units in Refused
+  Umbrella picture-sequence samples.
+gold:
+  file: gold_ciu_refused_umbrella.txt
+  parser: ciu_token_table

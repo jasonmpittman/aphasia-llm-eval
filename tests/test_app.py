@@ -47,6 +47,8 @@ def test_frontend_pages_render_without_inline_scripts(client):
     assert b"Compare models against verified language-analysis gold" in response.data
     assert b'id="model-list"' in response.data
     assert b'id="task-list"' in response.data
+    assert b'id="select-all-tasks"' in response.data
+    assert b'id="clear-tasks"' in response.data
     assert b'id="confirmation-modal"' in response.data
     assert b'id="ablation-enabled"' in response.data
     assert b'data-bs-theme="dark"' in response.data

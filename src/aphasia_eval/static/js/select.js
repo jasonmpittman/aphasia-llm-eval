@@ -274,6 +274,20 @@
     updateSummary();
   });
   document.getElementById("clear-models").addEventListener("click", () => setSelectedModels([]));
+  document.getElementById("select-all-tasks").addEventListener("click", () => {
+    document.querySelectorAll('input[name="tasks"]:not(:disabled)').forEach((input) => {
+      input.checked = true;
+      input.closest(".task-card").classList.add("selected");
+    });
+    updateSummary();
+  });
+  document.getElementById("clear-tasks").addEventListener("click", () => {
+    document.querySelectorAll('input[name="tasks"]').forEach((input) => {
+      input.checked = false;
+      input.closest(".task-card").classList.remove("selected");
+    });
+    updateSummary();
+  });
   ["temperature", "max-tokens", "repetitions", "item-limit", "ablation-values"].forEach((id) => document.getElementById(id).addEventListener("input", updateSummary));
   document.getElementById("ablation-enabled").addEventListener("change", (event) => {
     document.getElementById("ablation-options").classList.toggle("d-none", !event.currentTarget.checked);

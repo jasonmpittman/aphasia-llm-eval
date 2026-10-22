@@ -1,0 +1,8 @@
+# SYNTHETIC DEMONSTRATION DATA ONLY. Not clinical data; no accuracy claim.
+=== item: synthetic_cinderella_001 ===
+[input]
+stimulus: Cinderella
+[gold]
+1	1	The	WORD	CIU
+2	1	story	WORD	CIU
+3	1	ended	WORD	CIU

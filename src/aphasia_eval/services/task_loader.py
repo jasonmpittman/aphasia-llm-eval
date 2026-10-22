@@ -99,9 +99,8 @@ def load_task_file(
 
     task_path = Path(path)
     try:
-        raw_bytes = task_path.read_bytes()
-        config = yaml.safe_load(raw_bytes) or {}
-    except (OSError, yaml.YAMLError) as error:
+        config, hash_bytes = _load_task_config(task_path)
+    except (OSError, ValueError, yaml.YAMLError) as error:
         return TaskLoadResult(
             path=task_path,
             task=None,
@@ -150,7 +149,7 @@ def load_task_file(
     except ValueError as error:
         errors.append(str(error))
 
-    task_hash = hashlib.sha256(raw_bytes).hexdigest()
+    task_hash = hashlib.sha256(hash_bytes).hexdigest()
     prompt_hash = hashlib.sha256(
         (config["prompt"]["system"] + "\0" + config["prompt"]["user_template"]).encode()
     ).hexdigest()
@@ -172,6 +171,28 @@ def load_task_file(
         gold=gold,
     )
     return TaskLoadResult(path=task_path, task=task, errors=tuple(errors))
+
+
+def _load_task_config(path: Path, ancestors: tuple[Path, ...] = ()) -> tuple[dict[str, Any], bytes]:
+    """Load a task and shallow-merge an optional sibling base task."""
+
+    resolved = path.resolve()
+    if resolved in ancestors:
+        chain = " -> ".join(item.name for item in (*ancestors, resolved))
+        raise ValueError(f"task inheritance cycle: {chain}")
+    raw_bytes = path.read_bytes()
+    config = yaml.safe_load(raw_bytes) or {}
+    if not isinstance(config, dict):
+        return config, raw_bytes
+    base_name = config.get("extends")
+    if base_name is None:
+        return config, raw_bytes
+    if not isinstance(base_name, str) or not PLAIN_FIELD.fullmatch(base_name):
+        raise ValueError("task extends must be a sibling task ID")
+    base_path = path.parent / f"{base_name}.yaml"
+    base, base_hash_bytes = _load_task_config(base_path, (*ancestors, resolved))
+    merged = {**base, **config}
+    return merged, base_hash_bytes + b"\0" + raw_bytes
 
 
 def validate_prompt_templates(task: Mapping[str, Any]) -> None:

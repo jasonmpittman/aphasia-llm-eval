@@ -27,3 +27,8 @@ The task loader discovers top-level `.yaml` and `.yml` files automatically. A
 valid new task therefore appears in the UI without a route or template change.
 Missing or invalid gold disables only that task and exposes its validation
 errors through `/api/tasks`.
+
+Closely related tasks may declare `extends: <sibling_task_id>`. The loader
+shallow-merges the sibling before validation and includes both files in the
+task provenance hash. The CIU stimulus tasks use `ciu_scoring` as their shared
+prompt/schema definition while retaining independent task IDs and gold files.

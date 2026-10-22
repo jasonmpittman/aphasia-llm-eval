@@ -39,9 +39,15 @@ privacy, or redistribution requirements below.
 
 ## Bundled reference status
 
-- `gold_ciu_scoring.txt` contains the maintainer-supplied, clinically reviewed
-  Cat Rescue word and CIU token labels documented in
-  `annotations/cat_rescue_001.md`.
+- The five `gold_ciu_*.txt` files contain clinically reviewed token labels for
+  Cat Rescue, Broken Window, Refused Umbrella, Cinderella, and Procedural PB&J.
+  They are separate benchmark tasks so researchers can run one stimulus, any
+  combination, or all of them without collapsing unlike elicitation tasks.
+- `gold_ciu_scoring.txt` also retains the manually entered Cat Rescue item
+  documented in `annotations/cat_rescue_001.md`.
+- Imported items retain deidentified participant and test/retest session fields.
+  Use `participant_id` as a grouping variable in any resampling or data split;
+  the two sessions are not statistically independent participants.
 - `gold_pos_breakdown.txt` contains a provisional development annotation
   derived from the same transcript. It enables end-to-end POS testing but has
   not been independently reviewed and is not an authoritative gold standard.
@@ -53,3 +59,31 @@ data license, and whether repository redistribution is permitted. Do not commit
 PHI, identifiable participant data, or content whose redistribution rights are
 uncertain. When redistribution is not permitted, keep the file outside this
 repository and point `GOLD_TASKS_DIR` to that private location.
+
+## DOCX converter
+
+The strict converter in `aphasia_eval.services.ciu_docx_converter` reads Word
+run-level strikethrough, verifies the declared word and CIU totals, requires
+exact token alignment between `CIU_words` and `CIU_complete`, and writes one
+gold file per elicitation task. Intrarater, interrater, and alternate-rater
+documents are inventoried but never treated as independent benchmark items.
+
+Run an audit without writing files:
+
+```console
+python -m aphasia_eval.services.ciu_docx_converter /path/to/docx-directory \
+  --report-json /tmp/ciu-import-report.json
+```
+
+Write only the clean subset after reviewing the report:
+
+```console
+python -m aphasia_eval.services.ciu_docx_converter /path/to/docx-directory \
+  --write --allow-partial --output-dir /tmp/converted-ciu
+```
+
+An exit status of `1` means at least one candidate still requires review, even
+when `--allow-partial` safely wrote the accepted subset. The converter never
+guesses through tracked changes, mixed strikethrough, mismatched totals, or
+token alignment differences. See
+[`docs/ciu-docx-import.md`](../docs/ciu-docx-import.md) for the complete policy.

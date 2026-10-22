@@ -79,16 +79,25 @@ def test_model_and_task_discovery(app, client):
     }
 
     tasks = client.get("/api/tasks", headers=HEADERS).get_json()["tasks"]
-    assert [task["task_id"] for task in tasks] == ["ciu_scoring", "pos_breakdown"]
+    assert [task["task_id"] for task in tasks] == [
+        "ciu_broken_window",
+        "ciu_cinderella",
+        "ciu_procedural_pbj",
+        "ciu_refused_umbrella",
+        "ciu_scoring",
+        "pos_breakdown",
+    ]
     assert all(task["enabled"] and task["gold_status"] == "found" for task in tasks)
-    assert [task["item_count"] for task in tasks] == [5, 5]
-    assert tasks[0]["view_descriptor"]["type"] == "ciu_token_labels"
-    assert tasks[0]["view_descriptor"]["classification_labels"] == [
+    assert [task["item_count"] for task in tasks] == [1, 1, 1, 1, 5, 5]
+    ciu = next(task for task in tasks if task["task_id"] == "ciu_scoring")
+    pos = next(task for task in tasks if task["task_id"] == "pos_breakdown")
+    assert ciu["view_descriptor"]["type"] == "ciu_token_labels"
+    assert ciu["view_descriptor"]["classification_labels"] == [
         "not_word",
         "not_ciu",
         "ciu",
     ]
-    assert "NOUN" in tasks[1]["view_descriptor"]["classification_labels"]
+    assert "NOUN" in pos["view_descriptor"]["classification_labels"]
 
 
 def test_degraded_health_and_missing_gold_status(app, client, fake_litellm, tmp_path):

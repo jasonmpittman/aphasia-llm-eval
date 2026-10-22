@@ -4,9 +4,19 @@
 
 You choose which models and which tasks to run. The app sends each task to each model, compares every answer with a configured reference file, and shows that comparison next to input tokens, output tokens, estimated cost, and time. Results export to CSV, JSON, XLSX, and PDF.
 
-v0.1 ships two tasks: **Correct Information Unit (CIU) scoring** and **parts-of-speech (POS) breakdown**. Tasks are defined in configuration files, so new benchmarks are added without changing application code in the common case.
+The current beta includes independent CIU benchmarks for **Cat Rescue, Broken
+Window, Refused Umbrella, Cinderella, and Procedural PB&J**, plus a
+**parts-of-speech (POS) breakdown** task. The run builder can select one task,
+any combination, or all available tasks. Tasks are defined in configuration
+files, so new benchmarks are added without changing application code in the
+common case.
 
-> **Status:** v0.1 beta candidate. The application, synthetic demo workflow, and clinically reviewed Cat Rescue CIU reference are implemented. The Cat Rescue POS reference is provisional and must be independently reviewed or replaced before it is treated as an authoritative gold standard. Items marked **[Verify]** depend on the target LiteLLM proxy; run `python scripts/check_endpoint.py --model <model-id>` to inspect them.
+> **Status:** v0.2 beta development. The application, synthetic demo workflow,
+> task-separated clinically reviewed CIU references, and strict DOCX converter
+> are implemented. The Cat Rescue POS reference is provisional and must be
+> independently reviewed or replaced before it is treated as an authoritative
+> gold standard. Items marked **[Verify]** depend on the target LiteLLM proxy;
+> run `python scripts/check_endpoint.py --model <model-id>` to inspect them.
 >
 > **Not a clinical tool.** This project evaluates language models for research. It must not be used to diagnose, treat, or make care decisions about any person. Do not send protected health information (PHI) or identifiable patient data to the app. See [Data and privacy](#15-data-and-privacy).
 >
@@ -165,17 +175,22 @@ aphasia-llm-eval/
 │   └── pricing_overrides.yaml    # Optional manual per-model pricing
 ├── docs/
 │   ├── adding-a-task.md
+│   ├── ciu-docx-import.md
 │   ├── gold-file-format.md
 │   ├── comparison.md
 │   └── screenshots/
 ├── tasks/                        # Task definitions (what to ask, how to read the answer)
 │   ├── README.md
 │   ├── schema/task.schema.json
+│   ├── ciu_broken_window.yaml
+│   ├── ciu_cinderella.yaml
+│   ├── ciu_procedural_pbj.yaml
+│   ├── ciu_refused_umbrella.yaml
 │   ├── ciu_scoring.yaml
 │   └── pos_breakdown.yaml
 ├── gold_tasks/                   # Reference answers and provenance records
 │   ├── README.md
-│   ├── gold_ciu_scoring.txt      # Supplied by maintainers
+│   ├── gold_ciu_*.txt            # Reviewed, task-separated CIU references
 │   ├── gold_pos_breakdown.txt    # Provisional Cat Rescue UPOS reference
 │   └── examples/                 # Tiny synthetic files for demo mode and tests
 │       ├── gold_ciu_scoring.txt
@@ -346,6 +361,7 @@ Task files are validated against `tasks/schema/task.schema.json` at startup. An 
 | Field | Purpose |
 |-------|---------|
 | `schema_version`, `task_id`, `title`, `category`, `version`, `description` | Identification. `task_id` must match `^[a-z0-9_]+$`. |
+| `extends` | Optional sibling task ID whose configuration is shallow-merged before validation and hashing. |
 | `references` | Optional list of citations for the task's definition and rules. |
 | `gold` | `file` (default `gold_<task_id>.txt`) and `parser` (see section 9). |
 | `input` | Which fields each gold item supplies to the prompt, and the input `renderer` if the input is not plain text. |
@@ -366,9 +382,9 @@ The model reads a transcribed discourse sample and scores it for informativeness
 # tasks/ciu_scoring.yaml
 schema_version: 1
 task_id: ciu_scoring
-title: Correct Information Unit (CIU) Scoring
+title: CIU Scoring · Cat Rescue
 category: discourse
-version: "0.3.0"
+version: "0.4.0"
 description: >
   The model counts total words and Correct Information Units in a
   transcribed discourse sample.
@@ -381,7 +397,7 @@ gold:
 
 input:
   renderer: numbered_tokens
-  optional_fields: [stimulus, duration_seconds]
+  optional_fields: [stimulus, duration_seconds, participant_id, session, source_document]
 
 prompt:
   system: |

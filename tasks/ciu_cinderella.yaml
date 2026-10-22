@@ -1,0 +1,11 @@
+schema_version: 1
+extends: ciu_scoring
+task_id: ciu_cinderella
+title: CIU Scoring · Cinderella
+version: "0.1.0"
+description: >
+  The model scores total words and Correct Information Units in Cinderella
+  narrative-retell samples.
+gold:
+  file: gold_ciu_cinderella.txt
+  parser: ciu_token_table

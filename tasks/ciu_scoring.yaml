@@ -1,8 +1,8 @@
 schema_version: 1
 task_id: ciu_scoring
-title: Correct Information Unit (CIU) Scoring
+title: CIU Scoring · Cat Rescue
 category: discourse
-version: "0.3.0"
+version: "0.4.0"
 description: >
   The model counts total words and Correct Information Units in a
   transcribed discourse sample.
@@ -15,7 +15,7 @@ gold:
 
 input:
   renderer: numbered_tokens
-  optional_fields: [stimulus, duration_seconds]
+  optional_fields: [stimulus, duration_seconds, participant_id, session, source_document]
 
 prompt:
   system: |
